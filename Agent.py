@@ -1,38 +1,80 @@
 from collections import deque
 import random
 import numpy as np
+import torch
 from Game import SnakeGame, Direction, Point, BLOCK_SIZE
 from Model import Linear_QNet, QTrainer
 
-MAX_DATASET_SIZE = 100_000
-BATCH_SIZE = 1000
-LR = 0.001
-
-class Agent:
+#The Feed Foreward Neural Network agent.
+class FFNNAgent():
     
-    def __init__(self):
-        # Exploration / Exploitation trade-off.
-        self.epsilon = 0.1
-
+    def __init__(self, 
+            max_dataset_size = 10_000,
+            batch_size = 32,
+            lr = 0.001,
+            epsilon = 0.1,
+            decaying_epsilon = 0.999,
+            min_epsilon = 0.01,
+            gamma = 0.9,
+            out_model_path = './model.pth',
+            out_csv_path = None,
+            device = 'cpu',
+            gui = False,
+            checkpoint_path = None
+    ):
         # Disount factor.
-        self.gamma = 0.9
+        self.gamma = gamma
+
+        # Used for eps-greedy choice.
+        self.epsilon = epsilon
+        self.decaying_epsilon = decaying_epsilon
+        self.min_epsilon = min_epsilon
+
+        # Dataset with pairs (state, target)
+        self.memory = deque(maxlen=max_dataset_size)
+        # Used for long term train.
+        self.batch_size = batch_size
+
+        # Device.
+        self.device = device
+
+        # Action-value function approximator.
+        self.model = self._init_model(checkpoint_path)
+
+        # Model trainer.
+        self.trainer = QTrainer(self.model, lr, self.gamma, self.device)
+
+        # The game.
+        self.game = SnakeGame(gui=gui)
+
+        # Current record.
+        self.record = 0
 
         # Episodes counter.
         self.num_episodes = 0
 
-        # Dataset with pairs (state, target)
-        self.memory = deque(maxlen=MAX_DATASET_SIZE)
+        # Out path model and csv file.
+        self.out_model_path = out_model_path
+        self.out_csv_path = out_csv_path
 
-        # Action-value function approximator.
-        self.model = Linear_QNet(11, 256, 3)
-
-        # Model trainer.
-        self.trainer = QTrainer(self.model, LR, self.gamma)
+        # Create the output csv file.
+        if self.out_csv_path is not None:
+            with open(self.out_csv_path, 'w') as f:
+                f.write("avgScore,mean_score_20,score,total_score\n")
+            print("INFO: Stats will be stored in", self.out_csv_path)
     
+
+    def _init_model(self, checkpoint):
+        if checkpoint is not None:
+            model = self._load_checkpoint(checkpoint)
+        else:
+            model = Linear_QNet(11, 128, 3).to(self.device)
+        return model
 
     def get_state(self, game):
         # Get snake head.
         head = game.snake[0]
+        tail = game.snake[-1]
 
         # Block size.
         block_sz = BLOCK_SIZE
@@ -85,123 +127,154 @@ class Agent:
         return np.array(state, dtype=int)
 
 
-    def remember(self, state, action, reward, next_state, done):
-        self.memory.append((state, action, reward, next_state, done))
+    def _remember(self, state, action, reward, next_state, gameover):
+        self.memory.append((state, action, reward, next_state, gameover))
 
 
-    def train_short_memory(self, state, action, reward, next_state, done):
-        self.trainer.train_step(state, action, reward, next_state, done)
+    def _train_short_memory(self, state, action, reward, next_state, gameover):
+        self.trainer.train_step(state, action, reward, next_state, gameover)
 
 
-    def train_long_memory(self):
+    def _train_long_memory(self):
         # Define the batch.
-        if len(self.memory) > BATCH_SIZE:
-            batch = random.sample(self.memory, BATCH_SIZE)
+        if len(self.memory) > self.batch_size:
+            batch = random.sample(self.memory, self.batch_size)
         else:
             batch = self.memory
 
-        states, actions, rewards, next_states, dones = zip(*batch)
-        self.trainer.train_step(states, actions, rewards, next_states, dones)
+        states, actions, rewards, next_states, gameovers = zip(*batch)
+        states = np.array(states)
+        actions = np.array(actions)
+        rewards = np.array(rewards)
+        next_states = np.array(next_states)
+        gameovers = np.array(gameovers)
+        self.trainer.train_step(states, actions, rewards, next_states, gameovers)
 
 
     def get_action(self, state):
-        # random moves: tradeoff exploration / exploitation
-        #self.epsilon = 80 - self.num_episodes
+        # Choose move to perform.
+        self.epsilon = 80 - self.num_episodes
         final_move = [0,0,0]
-
-        #if random.randint(0, 200) < self.epsilon:
-        #    move = random.randint(0, 2)
-        #    final_move[move] = 1
-        #else:
-        #    state0 = np.array(state, dtype=float)
-        #    state0 = np.expand_dims(state0, 0)
-        #    prediction = self.model(state0, training=False)
-        #    move = np.argmax(prediction[0]).item()
-        #    final_move[move] = 1
-
-        greedy = np.random.choice([1, 0], p=[1-self.epsilon, self.epsilon])
-
-        state0 = np.array(state, dtype=float)
-        state0 = np.expand_dims(state0, 0)
-        prediction = self.model(state0, training=False)
-
-        greedy_idx = np.argmax(prediction[0]).item()
-        rnd_idx = np.delete(np.array([0, 1, 2]), greedy_idx).tolist()
-        
-        if greedy:
-            final_move[greedy_idx] = 1
+ 
+        if random.randint(0, 200) < self.epsilon:
+            move = random.randint(0, 2)
+            final_move[move] = 1
         else:
-            idx = np.random.choice(rnd_idx, p=[0.5, 0.5])
-            final_move[idx] = 1
+            state0 = torch.tensor(state, dtype=torch.float)
+            state0 = torch.unsqueeze(state0, 0).to(self.device)
+            prediction = self.model(state0)
+            move = torch.argmax(prediction).item()
+            final_move[move] = 1
 
+        # Get the 3 values Q(state, a) for each action a.
+        self.model.eval()
+        with torch.no_grad():
+            state0 = torch.tensor(state, dtype=torch.float)
+            state0 = torch.unsqueeze(state0, 0).to(self.device)
+            prediction = self.model(state0)
 
-        #print("pred", prediction)
-        #print("greedy idx:", greedy_idx)
-        #print("rnd idx:", rnd_idx)
-        #print("Is greedy?", greedy)
-        #print("final move:", final_move)
+        ## Define gready choice.
+        #greedy_action = torch.argmax(prediction).item()
+        ## Define the non-gredy choices.
+        #rnd_actions = np.delete(np.array([0, 1, 2]), greedy_action).tolist()
+        #
+        ## Should we follow gready action or not?
+        #follow_greedy = np.random.choice(
+        #    [1, 0], p=[1-self.epsilon, self.epsilon]
+        #)
+
+        #if follow_greedy:
+        #    final_move[greedy_action] = 1
+        #else: # follow non-greedy.
+        #    action = np.random.choice(rnd_actions, p=[0.5, 0.5])
+        #    final_move[action] = 1
 
         return final_move
-  
-
-def train():
-    plot_scores = []
-    plot_mean_scores = []
-    total_score = 0
-    record = 0
-    agent = Agent()
-    game = SnakeGame()
-    while True:
-        # get old state
-        state_old = agent.get_state(game)
-
-        # get move
-        final_move = agent.get_action(state_old)
-
-        # perform move and get new state
-        reward, done, score = game.play_step(final_move)
-        state_new = agent.get_state(game)
-
-        # train short memory
-        agent.train_short_memory(state_old, final_move, reward, state_new, done)
-
-        # remember
-        agent.remember(state_old, final_move, reward, state_new, done)
-
-        if done:
-            # train long memory, plot result
-            game.reset()
-            agent.num_episodes += 1
-            agent.train_long_memory()
-
-            if score > record:
-                record = score
-                #agent.model.save()
-
-            # Decaying epsilon.
-            if (agent.num_episodes % 50 == 0):
-                print("eps =",agent.epsilon)
-                agent.epsilon = max(0.01, agent.epsilon - 0.02)
-                
-
-            plot_scores.append(score)
-            total_score += score
-            mean_score = total_score / agent.num_episodes
-            plot_mean_scores.append(mean_score)
-            #plot(plot_scores, plot_mean_scores)
-
-            print('Game', agent.num_episodes, 'Score', score, 'Record:', record, "Mean score:", mean_score)
 
 
-if __name__ == "__main__":
-    #agent = Agent()
-    #agent.model.summary()
+    def print_info(self, score, mean_score, mean_score_20, total_score):
+        print(
+            f"INFO: GAME: {self.num_episodes}\n"
+            f"\tRecord: {self.record}\n"
+            f"\tScore: {score}\n"
+            f"\tMean score: {mean_score}\n"
+            f"\tMean score last 20: {mean_score_20}\n"
+            f"\tTotal score: {total_score}\n"
+            f"\tepsilon: {self.epsilon}"
+        )
 
-    #x = np.random.rand(2, 11)
-    #print(x.shape)
-    #y = agent.model.predict(x)
-    #print(y.shape)
-    #print(y)
 
-    train()
+    def _save_checkpoint(self):
+        checkpoint = {
+            'episode': self.num_episodes,
+            'record': self.record,
+            'model_state_dict': self.model.state_dict(),
+            'optimizer_state_dict': self.trainer.optimizer.state_dict(),
+            # Add any other required variables (like epsilon value, etc.)
+        }
+        torch.save(checkpoint, self.out_model_path)
 
+    def _load_checkpoint(self):
+        # Load the checkpoint file (to CPU).
+        checkpoint = torch.load()
+        
+        # Apply saved states.
+        self.model.load_state_dict(checkpoint['model_state_dict'])
+        self.model.to(self.device)
+        self.trainer.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        
+        # Restore metadata.
+        self.num_episodes = checkpoint['episode']
+        self.record = checkpoint['record']
+        
+        print(f"INFO: Checkpoint restored. Resuming training from Episode {self.num_episodes}.")
+    
+
+    def train(self):
+        total_score = 0
+        score_20 = deque(maxlen=20) # Score of last 20 games.
+
+        while True:
+            # Save current state.
+            state_old = self.get_state(self.game)
+    
+            # Choose action to perform.
+            final_move = self.get_action(state_old)
+    
+            # Do the action, save reward, gameover and current score.
+            reward, gameover, score = self.game.play_step(final_move)
+            state_new = self.get_state(self.game)
+    
+            # Train short memory.
+            self._train_short_memory(state_old, final_move, reward, state_new, gameover)
+    
+            # Remember.
+            self._remember(state_old, final_move, reward, state_new, gameover)
+    
+            if gameover:
+                # Train long memory, plot result.
+                self.game.reset()
+                self.num_episodes += 1
+                self._train_long_memory()
+    
+                if score > self.record:
+                    self.record = score
+                    self._save_checkpoint()
+                    print("INFO:  New best model saved!")
+    
+                # Decaying epsilon.
+                self.epsilon = max(self.epsilon * self.decaying_epsilon, self.min_epsilon)
+                    
+                # Update stats.
+                total_score += score
+                mean_score = total_score / self.num_episodes
+                score_20.append(score)
+                mean_score_20 = sum(score_20) / len(score_20)
+
+                # Print info in terminal.
+                self.print_info(score, mean_score, mean_score_20, total_score)
+
+                # Save stats in csv.
+                if self.out_csv_path is not None:
+                    with open(self.out_csv_path, 'a') as f:
+                        f.write(f"{mean_score},{mean_score_20},{score},{total_score}\n")

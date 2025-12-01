@@ -3,6 +3,7 @@ import random
 from enum import Enum
 from collections import namedtuple
 import numpy as np
+import math
 
 
 pygame.init()
@@ -24,19 +25,26 @@ BLUE2 = (0, 100, 255)
 BLACK = (0,0,0)
 
 BLOCK_SIZE = 20
-SPEED = 80
+SPEED = 100
 
 class SnakeGame:
     
-    def __init__(self, w=640, h=480):
+    def __init__(self, w=200, h=200, gui=True):
 
         # Window width and height.
         self.w = w 
         self.h = h
 
+        # Min distance from food to get reward +1.
+        self.prev_dist = 0
+
+        # If gui is active or not.
+        self.gui = gui
+
         # Init display.
-        self.display = pygame.display.set_mode((self.w, self.h))
-        pygame.display.set_caption('Info - Snake')
+        if self.gui:
+            self.display = pygame.display.set_mode((self.w, self.h))
+            pygame.display.set_caption('Info - Snake')
 
         # Set clock.
         self.clock = pygame.time.Clock()
@@ -65,9 +73,19 @@ class SnakeGame:
         self.food = None
         self._place_food()
 
+        self._dist_food_head()
+        self.prev_dist = self.dist
+
         # Init step counter.
         self.step_counter = 0
         
+
+    def _dist_food_head(self):
+        # Distance food <-> head.
+        self.dist = Point((self.head.x - self.food.x)/BLOCK_SIZE, (self.head.y - self.food.y)/BLOCK_SIZE)
+        self.dist = math.sqrt(self.dist.x ** 2 + self.dist.y ** 2)
+        #print("Dist =", self.dist)
+
 
     def _place_food(self):
         # Generate random coordinates.
@@ -104,14 +122,24 @@ class SnakeGame:
         # 4. Place new food or just move.
         if self.head == self.food:
             self.score += 1
-            reward += 10
+            reward = 10
             self._place_food()
         else:
             self.snake.pop()
+    
+        self.prev_dist = self.dist
+        self._dist_food_head()
+        if self.head != self.food:
+            if  self.dist < self.prev_dist:
+                reward = 1
+                #print("Dist =", self.dist)
+            else:
+                reward = -1
 
         # 5. Update ui and clock.
-        self._update_ui()
-        self.clock.tick(SPEED)
+        if self.gui:
+            self._update_ui()
+            self.clock.tick(SPEED)
 
         # 6. Return game over and score.
         return reward, game_over, self.score
