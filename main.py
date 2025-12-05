@@ -1,11 +1,12 @@
 from Agent import *
+from Game import ReplaySnakeGame, Point
 
 MAX_DATASET_SIZE = 100_000
 BATCH_SIZE = 500
 LR = 0.001
 
 EPSILON = 1
-DECAYING_FACTOR = 0.95
+DECAYING_FACTOR = 0.995
 MIN_EPSILON = 0.02
 GAMMA = 0.9
 
@@ -27,19 +28,25 @@ if __name__ == "__main__":
 
     agent = FFNNAgent(
         max_dataset_size = MAX_DATASET_SIZE,
-        batch_size = BATCH_SIZE,
-        lr = LR,
-        epsilon = EPSILON,
+        batch_size       = BATCH_SIZE,
+        lr               = LR,
+        epsilon          = EPSILON,
         decaying_epsilon = DECAYING_FACTOR,
-        min_epsilon = MIN_EPSILON,
-        gamma = GAMMA,
-        out_model_path = OUT_MODEL_FILE_PATH,
-        out_csv_path = OUT_CSV_PATH,
-        device = device,
-        gui = True,
-        checkpoint_path = None
+        min_epsilon      = MIN_EPSILON,
+        gamma            = GAMMA,
+        out_model_path   = OUT_MODEL_FILE_PATH,
+        out_csv_path     = OUT_CSV_PATH,
+        device           = device,
+        gui              = False,
+        checkpoint_path  = OUT_MODEL_FILE_PATH
     )
-    agent.train()
+    #agent.train()
+    
+    actions = agent.record_replay['actions']
+    foods = agent.record_replay['foods']
+    replay = ReplaySnakeGame(foods)
+    for action in actions:
+        replay.play_step(action)
 
 
 # TODOS:

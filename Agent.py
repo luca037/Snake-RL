@@ -5,22 +5,26 @@ import torch
 from Game import SnakeGame, Direction, Point, BLOCK_SIZE
 from Model import Linear_QNet, QTrainer
 
+
+# TO REMOVE.
+#torch.serialization.add_safe_globals([Point, deque, np._core.multiarray._reconstruct, np.ndarray, np.dtype])
+
 #The Feed Foreward Neural Network agent.
 class FFNNAgent():
     
     def __init__(self, 
             max_dataset_size = 10_000,
-            batch_size = 32,
-            lr = 0.001,
-            epsilon = 0.1,
+            batch_size       = 32,
+            lr               = 0.001,
+            epsilon          = 0.1,
             decaying_epsilon = 0.999,
-            min_epsilon = 0.01,
-            gamma = 0.9,
-            out_model_path = './model.pth',
-            out_csv_path = None,
-            device = 'cpu',
-            gui = False,
-            checkpoint_path = None
+            min_epsilon      = 0.01,
+            gamma            = 0.9,
+            out_model_path   = './model.pth',
+            out_csv_path     = None,
+            device           = 'cpu',
+            gui              = False,
+            checkpoint_path  = None
     ):
         # Disount factor.
         self.gamma = gamma
@@ -39,16 +43,17 @@ class FFNNAgent():
         self.device = device
 
         # Action-value function approximator.
-        self.model = self._init_model(checkpoint_path)
+        self.model = self.model = Linear_QNet(11, 128, 3).to(self.device)
 
         # Model trainer.
-        self.trainer = QTrainer(self.model, lr, self.gamma, self.device)
+        self.trainer = QTrainer(self.model, lr, self.gamma)
 
         # The game.
         self.game = SnakeGame(gui=gui)
 
         # Current record.
         self.record = 0
+        self.record_replay = {'actions': [], 'foods': []}
 
         # Episodes counter.
         self.num_episodes = 0
@@ -57,19 +62,16 @@ class FFNNAgent():
         self.out_model_path = out_model_path
         self.out_csv_path = out_csv_path
 
+        # Load checkpoint_path, if necesary.
+        if checkpoint_path is not None:
+            self._load_checkpoint(checkpoint_path)
+
         # Create the output csv file.
         if self.out_csv_path is not None:
             with open(self.out_csv_path, 'w') as f:
                 f.write("avgScore,mean_score_20,score,total_score\n")
             print("INFO: Stats will be stored in", self.out_csv_path)
     
-
-    def _init_model(self, checkpoint):
-        if checkpoint is not None:
-            model = self._load_checkpoint(checkpoint)
-        else:
-            model = Linear_QNet(11, 128, 3).to(self.device)
-        return model
 
     def get_state(self, game):
         # Get snake head.
@@ -132,6 +134,12 @@ class FFNNAgent():
 
 
     def _train_short_memory(self, state, action, reward, next_state, gameover):
+        # Transform into tensor.
+        state = torch.tensor(state, dtype=torch.float, device=self.device).unsqueeze(0)
+        action = torch.tensor(action, dtype=torch.float, device=self.device).unsqueeze(0)
+        reward = torch.tensor(reward, dtype=torch.float, device=self.device).unsqueeze(0)
+        next_state = torch.tensor(next_state, dtype=torch.float, device=self.device).unsqueeze(0)
+        gameover = torch.tensor(gameover, dtype=torch.bool, device=self.device).unsqueeze(0)
         self.trainer.train_step(state, action, reward, next_state, gameover)
 
 
@@ -142,29 +150,21 @@ class FFNNAgent():
         else:
             batch = self.memory
 
-        states, actions, rewards, next_states, gameovers = zip(*batch)
-        states = np.array(states)
-        actions = np.array(actions)
-        rewards = np.array(rewards)
-        next_states = np.array(next_states)
-        gameovers = np.array(gameovers)
+        states, actions, rewards, next_states, gameovers = [np.array(x) for x in zip(*batch)]
+
+        # Transform in tensors.
+        states = torch.tensor(states, dtype=torch.float, device=self.device)
+        actions = torch.tensor(actions, dtype=torch.float, device=self.device)
+        rewards = torch.tensor(rewards, dtype=torch.float, device=self.device)
+        next_states = torch.tensor(next_states, dtype=torch.float, device=self.device)
+        gameovers = torch.tensor(gameovers, dtype=torch.bool, device=self.device)
+
         self.trainer.train_step(states, actions, rewards, next_states, gameovers)
 
 
     def get_action(self, state):
-        # Choose move to perform.
-        self.epsilon = 80 - self.num_episodes
+        # The action to take.
         final_move = [0,0,0]
- 
-        if random.randint(0, 200) < self.epsilon:
-            move = random.randint(0, 2)
-            final_move[move] = 1
-        else:
-            state0 = torch.tensor(state, dtype=torch.float)
-            state0 = torch.unsqueeze(state0, 0).to(self.device)
-            prediction = self.model(state0)
-            move = torch.argmax(prediction).item()
-            final_move[move] = 1
 
         # Get the 3 values Q(state, a) for each action a.
         self.model.eval()
@@ -173,21 +173,18 @@ class FFNNAgent():
             state0 = torch.unsqueeze(state0, 0).to(self.device)
             prediction = self.model(state0)
 
-        ## Define gready choice.
-        #greedy_action = torch.argmax(prediction).item()
-        ## Define the non-gredy choices.
-        #rnd_actions = np.delete(np.array([0, 1, 2]), greedy_action).tolist()
-        #
-        ## Should we follow gready action or not?
-        #follow_greedy = np.random.choice(
-        #    [1, 0], p=[1-self.epsilon, self.epsilon]
-        #)
-
-        #if follow_greedy:
-        #    final_move[greedy_action] = 1
-        #else: # follow non-greedy.
-        #    action = np.random.choice(rnd_actions, p=[0.5, 0.5])
-        #    final_move[action] = 1
+        # Gready choice.
+        greedy_idx = torch.argmax(prediction).item()
+        # Non-gredy choices.
+        rnd_actions = np.delete(np.array([0, 1, 2]), greedy_idx).tolist()
+        
+        # Choose the move.
+        if random.random() < self.epsilon:
+            # Exploration.
+            action = np.random.choice(rnd_actions, p=[0.5, 0.5])
+            final_move[action] = 1
+        else: # Exploitation.
+            final_move[greedy_idx] = 1
 
         return final_move
 
@@ -208,15 +205,19 @@ class FFNNAgent():
         checkpoint = {
             'episode': self.num_episodes,
             'record': self.record,
+            'epsilon': self.epsilon,
             'model_state_dict': self.model.state_dict(),
             'optimizer_state_dict': self.trainer.optimizer.state_dict(),
+            'memory': self.memory,
+            'record_replay': self.record_replay
             # Add any other required variables (like epsilon value, etc.)
         }
         torch.save(checkpoint, self.out_model_path)
 
-    def _load_checkpoint(self):
+
+    def _load_checkpoint(self, checkpoint_path):
         # Load the checkpoint file (to CPU).
-        checkpoint = torch.load()
+        checkpoint = torch.load(checkpoint_path, weights_only=False)
         
         # Apply saved states.
         self.model.load_state_dict(checkpoint['model_state_dict'])
@@ -226,7 +227,9 @@ class FFNNAgent():
         # Restore metadata.
         self.num_episodes = checkpoint['episode']
         self.record = checkpoint['record']
-        
+        self.epsilon = checkpoint['epsilon']
+        self.record_replay = checkpoint['record_replay']
+        self.memory = checkpoint['memory']
         print(f"INFO: Checkpoint restored. Resuming training from Episode {self.num_episodes}.")
     
 
@@ -234,13 +237,17 @@ class FFNNAgent():
         total_score = 0
         score_20 = deque(maxlen=20) # Score of last 20 games.
 
+        # Store info to replay the record.
+        actions_replay = []
+        food_replay = [self.game.food]
+
         while True:
             # Save current state.
             state_old = self.get_state(self.game)
     
             # Choose action to perform.
             final_move = self.get_action(state_old)
-    
+ 
             # Do the action, save reward, gameover and current score.
             reward, gameover, score = self.game.play_step(final_move)
             state_new = self.get_state(self.game)
@@ -250,7 +257,11 @@ class FFNNAgent():
     
             # Remember.
             self._remember(state_old, final_move, reward, state_new, gameover)
-    
+
+            # Store data for replay.
+            actions_replay.append(final_move)
+            food_replay.append(self.game.food)
+
             if gameover:
                 # Train long memory, plot result.
                 self.game.reset()
@@ -258,9 +269,18 @@ class FFNNAgent():
                 self._train_long_memory()
     
                 if score > self.record:
+                    # Save record.
                     self.record = score
+                    self.record_replay['actions'] = actions_replay
+                    self.record_replay['foods'] = food_replay
+
+                    # Create checkpoint.
+                    print("INFO: New record! Saving checkpoint...")
                     self._save_checkpoint()
-                    print("INFO:  New best model saved!")
+
+                # Reset replay.
+                actions_replay = []
+                food_replay = []
     
                 # Decaying epsilon.
                 self.epsilon = max(self.epsilon * self.decaying_epsilon, self.min_epsilon)

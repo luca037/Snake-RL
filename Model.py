@@ -17,33 +17,15 @@ class Linear_QNet(nn.Module):
 
 
 class QTrainer:
-    def __init__(self, model, lr, gamma, device):
+    def __init__(self, model, lr, gamma):
         self.lr = lr
         self.gamma = gamma
         self.model = model
 
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
         self.criterion = nn.MSELoss()
-    
-        self.device = device
-
 
     def train_step(self, state, action, reward, next_state, done):
-        # Move everything to device.
-        state = torch.tensor(state, dtype=torch.float, device=self.device)
-        next_state = torch.tensor(next_state, dtype=torch.float, device=self.device)
-        action = torch.tensor(action, dtype=torch.float, device=self.device)
-        reward = torch.tensor(reward, dtype=torch.float, device=self.device)
-        done = torch.tensor(done, dtype=torch.bool, device=self.device)
-    
-        # Needed when training short memory.
-        if len(state.shape) == 1:
-            state = state.unsqueeze(0)
-            next_state = next_state.unsqueeze(0)
-            action = action.unsqueeze(0)
-            reward = reward.unsqueeze(0)
-            done = done.unsqueeze(0)
-    
         # Q-Value forward pass.
         self.model.train() 
         pred = self.model(state) # shape: (N x 3) (3 = # actions)

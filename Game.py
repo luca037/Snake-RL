@@ -5,7 +5,6 @@ from collections import namedtuple
 import numpy as np
 import math
 
-
 pygame.init()
 font = pygame.font.SysFont('arial', 25)
 
@@ -25,8 +24,10 @@ BLUE2 = (0, 100, 255)
 BLACK = (0,0,0)
 
 BLOCK_SIZE = 20
-SPEED = 100
+SPEED = 10
 
+
+# Class that represents the game.
 class SnakeGame:
     
     def __init__(self, w=200, h=200, gui=True):
@@ -210,3 +211,46 @@ class SnakeGame:
             y -= BLOCK_SIZE
             
         self.head = Point(x, y)
+
+
+# Class that reprsent a replay game.
+class ReplaySnakeGame(SnakeGame):
+    def __init__(self, food_positions, w=200, h=200, gui=True):
+        super().__init__(w, h, gui)
+        self.food_positions = food_positions # All the food positions.
+        self.food = self.food_positions[0] # Set the first one.
+
+    def play_step(self, action):
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                quit()
+
+        # Move.
+        self._move(action) # Update the head.
+        self.snake.insert(0, self.head)
+
+        # Check if game over.
+        game_over = False
+        if self.is_collision() or self.step_counter > 100 * len(self.snake):
+            game_over = True
+            reward = -10
+            return game_over
+
+        # Update score if necessary.
+        if self.head == self.food:
+            self.score += 1
+        else:
+            self.snake.pop()
+
+        # Update food position.
+        self.food = self.food_positions.pop(0)
+ 
+        # Update ui and clock.
+        if self.gui:
+            self._update_ui()
+            self.clock.tick(SPEED)
+
+        # Return game over and score.
+        return game_over
