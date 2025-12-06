@@ -122,6 +122,8 @@ class QTrainer_target:
 
         self.optimizer.step()
 
+        return loss.detach().item()
+
 
 
 class Linear_QNet(nn.Module):

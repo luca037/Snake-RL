@@ -387,9 +387,9 @@ class AtariAgent:
 
         # Create the output csv file.
         if self.out_csv_path is not None:
-            if not os.path.exists(self.out_csv_path):
-                with open(self.out_csv_path, 'w') as f:
-                    f.write("tot_avg_score,mean_score_100,score,total_score,tot_reward,mean_reward_100,epsilon\n")
+            #if not os.path.exists(self.out_csv_path):
+            with open(self.out_csv_path, 'w') as f:
+                f.write("mean_score,mean_score_100,score,mean_reward,mean_reward_100,reward,epsilon,mean_loss_100\n")
             print("INFO: Stats will be stored in", self.out_csv_path)
  
 
@@ -472,7 +472,9 @@ class AtariAgent:
         next_states = torch.tensor(next_states, dtype=torch.float, device=self.device)
         gameovers = torch.tensor(gameovers, dtype=torch.bool, device=self.device)
 
-        self.trainer.train_step(states, actions, rewards, next_states, gameovers)
+        # Train and return loss.
+        loss = self.trainer.train_step(states, actions, rewards, next_states, gameovers)
+        return loss
 
 
     def get_action(self, state):
@@ -578,6 +580,8 @@ class AtariAgent:
         episode_reward = 0
         reward_last_100 = deque(maxlen=100)
 
+        loss_last_100 = deque(maxlen=100)
+
         # Store info to replay the record.
         actions_replay = []
         food_replay = [self.game.food]
@@ -629,7 +633,8 @@ class AtariAgent:
                 state_old = self.get_state(self.game)
 
                 # Train on batch.
-                self._train_long_memory()
+                loss = self._train_long_memory()
+                loss_last_100.append(loss)
 
                 # Save checkpoint if new record reached.
                 if score > self.record:
@@ -653,12 +658,15 @@ class AtariAgent:
                 mean_score_100 = sum(score_last_100) / len(score_last_100)
 
                 tot_reward += episode_reward
+                mean_reward = tot_reward / self.num_episodes
                 reward_last_100.append(episode_reward)
                 mean_reward_100 = sum(reward_last_100) / len(reward_last_100)
 
+                mean_loss_100 = sum(loss_last_100) / len(loss_last_100)
+
                 self.print_info(score, mean_score, mean_score_100, total_score, mean_reward_100)
 
-                csv_line = f"{mean_score},{mean_score_100},{score},{total_score},{tot_reward},{mean_reward_100},{self.epsilon}\n"
+                csv_line = f"{mean_score},{mean_score_100},{score},{mean_reward},{mean_reward_100},{episode_reward},{self.epsilon},{mean_loss_100}\n"
 
                 # Save stats in csv.
                 if self.out_csv_path is not None:
