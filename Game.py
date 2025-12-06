@@ -123,19 +123,21 @@ class SnakeGame:
         # 4. Place new food or just move.
         if self.head == self.food:
             self.score += 1
-            reward = 10
+            reward = 10 + self.score * 0.5
             self._place_food()
         else:
+            if len(self.snake) > 10:
+                reward += 0.1
             self.snake.pop()
     
-        self.prev_dist = self.dist
-        self._dist_food_head()
-        if self.head != self.food:
-            if  self.dist < self.prev_dist:
-                reward = 1
-                #print("Dist =", self.dist)
-            else:
-                reward = -1
+        #self.prev_dist = self.dist
+        #self._dist_food_head()
+        #if self.head != self.food:
+        #    if  self.dist < self.prev_dist:
+        #        reward = 1
+        #        #print("Dist =", self.dist)
+        #    else:
+        #        reward = -1
 
         # 5. Update ui and clock.
         if self.gui:

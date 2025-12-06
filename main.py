@@ -1,14 +1,16 @@
 from Agent import *
 from Game import ReplaySnakeGame, Point
 
-MAX_DATASET_SIZE = 100_000
-BATCH_SIZE = 500
-LR = 0.001
+MAX_DATASET_SIZE = 1_000_000
+BATCH_SIZE = 32
+LR = 0.00025
 
 EPSILON = 1
 DECAYING_FACTOR = 0.995
-MIN_EPSILON = 0.02
-GAMMA = 0.9
+MIN_EPSILON = 0.01
+GAMMA = 0.99
+
+TARGET_SYNC = 10_000
 
 OUT_MODEL_FILE_PATH = "./output/models/model.pth"
 OUT_CSV_PATH = "./output/csv/avg_score2.csv"
@@ -24,9 +26,27 @@ if __name__ == "__main__":
         print ("INFO: MPS device found. Running on GPU")
     else:
         device = torch.device("cpu")
-        print("INFO: CUDA and MMPS not available. Running on CPU.")
+        print("INFO: CUDA and MPS not available. Running on CPU.")
 
-    agent = FFNNAgent(
+    # BLIND AGENT.
+    #agent = FFNNAgent(
+    #    max_dataset_size = MAX_DATASET_SIZE,
+    #    batch_size       = BATCH_SIZE,
+    #    lr               = LR,
+    #    epsilon          = EPSILON,
+    #    decaying_epsilon = DECAYING_FACTOR,
+    #    min_epsilon      = MIN_EPSILON,
+    #    gamma            = GAMMA,
+    #    out_model_path   = OUT_MODEL_FILE_PATH,
+    #    out_csv_path     = OUT_CSV_PATH,
+    #    device           = device,
+    #    gui              = False,
+    #    checkpoint_path  = OUT_MODEL_FILE_PATH
+    #)
+    #agent.train()
+
+    # ATARI AGENT.
+    agent = AtariAgent(
         max_dataset_size = MAX_DATASET_SIZE,
         batch_size       = BATCH_SIZE,
         lr               = LR,
@@ -34,14 +54,15 @@ if __name__ == "__main__":
         decaying_epsilon = DECAYING_FACTOR,
         min_epsilon      = MIN_EPSILON,
         gamma            = GAMMA,
+        target_sync      = TARGET_SYNC,
         out_model_path   = OUT_MODEL_FILE_PATH,
         out_csv_path     = OUT_CSV_PATH,
         device           = device,
         gui              = False,
         checkpoint_path  = OUT_MODEL_FILE_PATH
     )
-    #agent.train()
-    
+    agent.train()
+
     actions = agent.record_replay['actions']
     foods = agent.record_replay['foods']
     replay = ReplaySnakeGame(foods)
