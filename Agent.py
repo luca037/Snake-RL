@@ -6,6 +6,8 @@ from Game import SnakeGame, Direction, Point, BLOCK_SIZE
 from Model import *
 import os
 
+import h5py
+
 
 class BlindAgent():
     
@@ -158,7 +160,6 @@ class BlindAgent():
         gameovers = torch.tensor(gameovers, dtype=torch.bool, device=self.device)
 
         self.trainer.train_step(states, actions, rewards, next_states, gameovers)
-
 
     def get_action(self, state):
         # The action to take.
@@ -328,7 +329,6 @@ class AtariAgent:
 
         # Dataset with pairs (state, target)
         self.memory = deque(maxlen=max_dataset_size)
-        # Used for long term train.
         self.batch_size = batch_size
 
         # Device.
@@ -387,22 +387,19 @@ class AtariAgent:
 
         # Create the output csv file.
         if self.out_csv_path is not None:
-            #if not os.path.exists(self.out_csv_path):
-            with open(self.out_csv_path, 'w') as f:
-                f.write("mean_score,mean_score_100,score,mean_reward,mean_reward_100,reward,epsilon,mean_loss_100\n")
+            if not os.path.exists(self.out_csv_path):
+                with open(self.out_csv_path, 'w') as f:
+                    f.write("mean_score,mean_score_100,score,mean_reward,mean_reward_100,reward,epsilon,mean_loss_100\n")
             print("INFO: Stats will be stored in", self.out_csv_path)
  
 
     def _reset_stack(self):
-        """Clears the frame stack with zeros (called on Game Over)"""
         for _ in range(self.stack_size):
             zero_frame = np.zeros((self.frame_rows, self.frame_cols), dtype=float)
             self.frames.append(zero_frame)
 
 
     def _get_single_frame(self, game):
-        """Generates the snapshot of the CURRENT instant (1 Channel)"""
-
         # Initialize empty grid.
         dims = (self.frame_rows, self.frame_cols)
         state = np.zeros(dims, dtype=float)
@@ -423,19 +420,10 @@ class AtariAgent:
         j = int(game.food.x // BLOCK_SIZE) + 1
         state[i, j] = 2.0
 
-        # Optional: Wall boundary (-1.0 or 1.0).
-        # state[0, :] = 1.0
-        # state[:, 0] = 1.0 ... etc
-
         return state
 
 
     def get_state(self, game):
-        """
-        1. Gets the current single frame.
-        2. Appends it to the deque (removing the oldest).
-        3. Returns the stacked frames as a numpy array.
-        """
         # Take snapshot and add to stack.
         frame = self._get_single_frame(game)
         self.frames.append(frame)
@@ -447,6 +435,7 @@ class AtariAgent:
     def remember(self, state, action, reward, next_state, gameover):
         self.memory.append((state, action, reward, next_state, gameover))
 
+
     def _train_short_memory(self, state, action, reward, next_state, gameover):
         # Transform into tensor.
         state = torch.tensor(state, dtype=torch.float, device=self.device).unsqueeze(0)
@@ -455,6 +444,7 @@ class AtariAgent:
         next_state = torch.tensor(next_state, dtype=torch.float, device=self.device).unsqueeze(0)
         gameover = torch.tensor(gameover, dtype=torch.bool, device=self.device).unsqueeze(0)
         self.trainer.train_step(state, action, reward, next_state, gameover)
+
 
     def _train_long_memory(self):
         # Define the batch.
@@ -490,15 +480,14 @@ class AtariAgent:
 
         # Gready choice.
         greedy_idx = torch.argmax(prediction).item()
-        # Non-gredy choices.
+        # Non-gready choices.
         rnd_actions = np.delete(np.array([0, 1, 2]), greedy_idx).tolist()
         
         # Choose the move.
         if self.num_steps < 50_000:
             action = random.randint(0, 2)
             final_move[action] = 1
-        elif random.random() < self.epsilon:
-            # Exploration.
+        elif random.random() < self.epsilon: # Exploration.
             action = np.random.choice(rnd_actions, p=[0.5, 0.5])
             final_move[action] = 1
         else: # Exploitation.
@@ -507,12 +496,15 @@ class AtariAgent:
         return final_move
 
 
-    def print_info(self, score, mean_score, mean_score_100, total_score, mean_reward_100):
+    def print_info(self, score, mean_score, mean_score_100, total_score, mean_reward_100, episode_steps):
         print(
-            f"INFO: GAME: {self.num_episodes}\n"
+            "INFO:\n"
+            f"\tGAME: {self.num_episodes}\n"
             f"\tRecord: {self.record}\n"
             f"\tSteps: {self.num_steps}\n"
+            f"\tBuffer memory size: {len(self.memory)}\n"
             f"\tScore: {score}\n"
+            f"\tDuration (steps): {episode_steps}\n"
             f"\tMean score: {mean_score}\n"
             f"\tMean score last 100: {mean_score_100}\n"
             f"\tMean reward last 100: {mean_reward_100}\n"
@@ -520,27 +512,70 @@ class AtariAgent:
             f"\tepsilon: {self.epsilon}"
         )
 
+    
+    # TODO: don't hard-code the filename!
+    def _store_buffer_h5(self, out_path, group_name='common_memory'):
+                
+        with h5py.File(out_path, 'w') as f:
+            # Unzip memory.
+            states, actions, rewards, next_states, gameovers = [np.array(x) for x in zip(*self.memory)]
 
+            # Create a group to store all ements within a sample.
+            grp = f.create_group(group_name)
+            grp.create_dataset('states', data=states, compression='gzip')
+            grp.create_dataset('next_states', data=next_states, compression='gzip')
+
+            # TODO: cast to specific type to save space.
+            grp.create_dataset('actions', data=actions, compression='gzip')
+            grp.create_dataset('rewards', data=rewards, compression='gzip')
+            grp.create_dataset('gameovers', data=gameovers, compression='gzip')
+            print(f"Saved {len(states)} samples to memory buffer")
+
+    
+    # TODO: store the number of steps!
     def _save_checkpoint(self):
+        # Store the memory to disk.
+        memory_path = "./output/models/memory.h5"
+        self._store_buffer_h5(out_path=memory_path)
+
         checkpoint = {
             'episode': self.num_episodes,
             'record': self.record,
             'epsilon': self.epsilon,
             'model_state_dict': self.model.state_dict(),
             'optimizer_state_dict': self.trainer.optimizer.state_dict(),
-            'memory': self.memory,
+            'memory_path': memory_path,
             'record_replay': self.record_replay
         }
         torch.save(checkpoint, self.out_model_path)
 
 
+    def _load_buffer_h5(self, path, group_name='common_memory'):
+        with h5py.File(path, 'r') as f:
+                
+            # Load samples to ram.
+            states = f[group_name]['states'][:]
+            actions = f[group_name]['actions'][:]
+            rewards = f[group_name]['rewards'][:]
+            next_states = f[group_name]['next_states'][:]
+            gameovers = f[group_name]['gameovers'][:]
+            
+            experiences = zip(states, actions, rewards, next_states, gameovers)
+            
+            # Extend memory.
+            self.memory.extend(experiences)
+            print(f"INFO: Loaded {len(self.memory)} samples into memory buffer.")
+
+
+    # TODO: load the number of steps.
     def _load_checkpoint(self, checkpoint_path):
         # Load the checkpoint file (to CPU).
-        checkpoint = torch.load(checkpoint_path, weights_only=False)
+        checkpoint = torch.load(checkpoint_path, weights_only=False, map_location=self.device)
         
         # Apply saved states.
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.model.to(self.device)
+        self._target_sync()
         self.trainer.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         
         # Restore metadata.
@@ -548,8 +583,10 @@ class AtariAgent:
         self.record = checkpoint['record']
         self.epsilon = checkpoint['epsilon']
         self.record_replay = checkpoint['record_replay']
-        self.memory = checkpoint['memory']
-        print(f"INFO: Checkpoint restored. Resuming training from Episode {self.num_episodes}.")
+
+        memory_path = checkpoint['memory_path']
+        self._load_buffer_h5(path=memory_path)
+        print(f"INFO: Checkpoint restored.")
 
     
     def _target_sync(self):
@@ -580,7 +617,9 @@ class AtariAgent:
         episode_reward = 0
         reward_last_100 = deque(maxlen=100)
 
-        loss_last_100 = deque(maxlen=100)
+        episode_steps = 0
+
+        losses = []
 
         # Store info to replay the record.
         actions_replay = []
@@ -594,16 +633,20 @@ class AtariAgent:
             # Choose action to perform.
             final_move = self.get_action(state_old)
             self.num_steps += 1
+            episode_steps += 1
+
     
             # Do the action, save reward, gameover and current score.
             reward, gameover, score = self.game.play_step(final_move)
             state_new = self.get_state(self.game)
     
-            # Train short memory
-            #self._train_short_memory(state_old, final_move, reward, state_new, gameover)
-    
             # Remember.
             self.remember(state_old, final_move, reward, state_new, gameover)
+
+            # Train on batch.
+            # TODO: logging this loss is useless. Log max loss or raw loss.
+            loss = self._train_long_memory()
+            losses.append(loss)
 
             # Update episode reward.
             episode_reward += reward
@@ -632,10 +675,6 @@ class AtariAgent:
                 self._reset_stack()
                 state_old = self.get_state(self.game)
 
-                # Train on batch.
-                loss = self._train_long_memory()
-                loss_last_100.append(loss)
-
                 # Save checkpoint if new record reached.
                 if score > self.record:
                     self.record = score
@@ -662,9 +701,9 @@ class AtariAgent:
                 reward_last_100.append(episode_reward)
                 mean_reward_100 = sum(reward_last_100) / len(reward_last_100)
 
-                mean_loss_100 = sum(loss_last_100) / len(loss_last_100)
+                mean_loss_100 = sum(losses) / len(losses)
 
-                self.print_info(score, mean_score, mean_score_100, total_score, mean_reward_100)
+                self.print_info(score, mean_score, mean_score_100, total_score, mean_reward_100, episode_steps)
 
                 csv_line = f"{mean_score},{mean_score_100},{score},{mean_reward},{mean_reward_100},{episode_reward},{self.epsilon},{mean_loss_100}\n"
 
@@ -673,5 +712,8 @@ class AtariAgent:
                     with open(self.out_csv_path, 'a') as f:
                         f.write(csv_line)
 
-                # Reset episode reward.
+                # Reset stats.
                 episode_reward = 0
+                episode_steps = 0
+
+                losses = []
