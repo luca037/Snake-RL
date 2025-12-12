@@ -316,7 +316,8 @@ class AtariAgent:
             out_csv_path     = None,
             device           = 'cpu',
             gui              = False,
-            checkpoint_path  = None
+            checkpoint_path  = None,
+            load_buffer      = False
 
     ):
         # Disount factor.
@@ -327,19 +328,29 @@ class AtariAgent:
         self.decaying_epsilon = decaying_epsilon
         self.min_epsilon = min_epsilon
 
+        # The game.
+        self.game = SnakeGame(gui=gui)
+        self.frame_rows = self.game.h // BLOCK_SIZE + 2
+        self.frame_cols = self.game.w // BLOCK_SIZE + 2
+
+        # Define the frame stack.
+        self.stack_size = 4
+        self.frames = deque(maxlen=self.stack_size)
+        self._reset_stack()
+
         # Dataset with pairs (state, target)
-        self.memory = deque(maxlen=max_dataset_size)
+        self.memory = ReplayBuffer(
+                state_shape=(self.stack_size, self.frame_rows, self.frame_cols),
+                action_dim=3,
+                max_size=max_dataset_size,
+                device=device
+        )
         self.batch_size = batch_size
 
         # Device.
         self.device = device
 
-        # The game.
-        self.game = SnakeGame(gui=gui)
-
         # Action-value function approximator (main model).
-        self.frame_rows = self.game.h // BLOCK_SIZE + 2
-        self.frame_cols = self.game.w // BLOCK_SIZE + 2
         self.model = CNN_QNet(
                 in_chan=4,
                 grid_rows=self.frame_rows,
@@ -372,18 +383,13 @@ class AtariAgent:
         self.num_episodes = 0
         self.num_steps = 0
 
-        # Define the frame stack.
-        self.stack_size = 4
-        self.frames = deque(maxlen=self.stack_size)
-        self._reset_stack()
-
         # Out path model and csv file.
         self.out_model_path = out_model_path
         self.out_csv_path = out_csv_path
 
         # Load checkpoint_path, if necesary.
         if checkpoint_path is not None:
-            self._load_checkpoint(checkpoint_path)
+            self._load_checkpoint(checkpoint_path, load_buffer)
 
         # Create the output csv file.
         if self.out_csv_path is not None:
@@ -395,14 +401,14 @@ class AtariAgent:
 
     def _reset_stack(self):
         for _ in range(self.stack_size):
-            zero_frame = np.zeros((self.frame_rows, self.frame_cols), dtype=float)
+            zero_frame = torch.zeros((self.frame_rows, self.frame_cols), dtype=torch.float)
             self.frames.append(zero_frame)
 
 
     def _get_single_frame(self, game):
         # Initialize empty grid.
         dims = (self.frame_rows, self.frame_cols)
-        state = np.zeros(dims, dtype=float)
+        state = torch.zeros(dims, dtype=torch.float)
 
         # Draw body (value=0.5).
         for point in game.snake[1:]:
@@ -429,38 +435,27 @@ class AtariAgent:
         self.frames.append(frame)
         
         # Convert deque of (H, W) -> Numpy Array (4, H, W)
-        return np.array(self.frames)
+        return torch.from_numpy(np.array(self.frames))
 
 
     def remember(self, state, action, reward, next_state, gameover):
-        self.memory.append((state, action, reward, next_state, gameover))
+        self.memory.append(state, action, reward, next_state, gameover)
 
 
-    def _train_short_memory(self, state, action, reward, next_state, gameover):
-        # Transform into tensor.
-        state = torch.tensor(state, dtype=torch.float, device=self.device).unsqueeze(0)
-        action = torch.tensor(action, dtype=torch.float, device=self.device).unsqueeze(0)
-        reward = torch.tensor(reward, dtype=torch.float, device=self.device).unsqueeze(0)
-        next_state = torch.tensor(next_state, dtype=torch.float, device=self.device).unsqueeze(0)
-        gameover = torch.tensor(gameover, dtype=torch.bool, device=self.device).unsqueeze(0)
-        self.trainer.train_step(state, action, reward, next_state, gameover)
+    # TODO: remove this..
+    #def _train_short_memory(self, state, action, reward, next_state, gameover):
+    #    # Transform into tensor.
+    #    state = torch.tensor(state, dtype=torch.float, device=self.device).unsqueeze(0)
+    #    action = torch.tensor(action, dtype=torch.float, device=self.device).unsqueeze(0)
+    #    reward = torch.tensor(reward, dtype=torch.float, device=self.device).unsqueeze(0)
+    #    next_state = torch.tensor(next_state, dtype=torch.float, device=self.device).unsqueeze(0)
+    #    gameover = torch.tensor(gameover, dtype=torch.bool, device=self.device).unsqueeze(0)
+    #    self.trainer.train_step(state, action, reward, next_state, gameover)
 
 
     def _train_long_memory(self):
-        # Define the batch.
-        if len(self.memory) > self.batch_size:
-            batch = random.sample(self.memory, self.batch_size)
-        else:
-            batch = self.memory
-
-        states, actions, rewards, next_states, gameovers = [np.array(x) for x in zip(*batch)]
-
-        # Transform into tensor.
-        states = torch.tensor(states, dtype=torch.float, device=self.device)
-        actions = torch.tensor(actions, dtype=torch.float, device=self.device)
-        rewards = torch.tensor(rewards, dtype=torch.float, device=self.device)
-        next_states = torch.tensor(next_states, dtype=torch.float, device=self.device)
-        gameovers = torch.tensor(gameovers, dtype=torch.bool, device=self.device)
+        # Create batch.
+        states, actions, rewards, next_states, gameovers = self.memory.sample_buffer(self.batch_size)
 
         # Train and return loss.
         loss = self.trainer.train_step(states, actions, rewards, next_states, gameovers)
@@ -474,7 +469,7 @@ class AtariAgent:
         # Get the 3 values Q(state, a) for each action a.
         self.model.eval()
         with torch.no_grad():
-            state0 = torch.tensor(state, dtype=torch.float)
+            state0 = state.detach().clone()
             state0 = torch.unsqueeze(state0, 0).to(self.device)
             prediction = self.model(state0)
 
@@ -513,33 +508,14 @@ class AtariAgent:
         )
 
     
-    # TODO: don't hard-code the filename!
-    def _store_buffer_h5(self, out_path, group_name='common_memory'):
-                
-        with h5py.File(out_path, 'w') as f:
-            # Unzip memory.
-            states, actions, rewards, next_states, gameovers = [np.array(x) for x in zip(*self.memory)]
-
-            # Create a group to store all ements within a sample.
-            grp = f.create_group(group_name)
-            grp.create_dataset('states', data=states, compression='gzip')
-            grp.create_dataset('next_states', data=next_states, compression='gzip')
-
-            # TODO: cast to specific type to save space.
-            grp.create_dataset('actions', data=actions, compression='gzip')
-            grp.create_dataset('rewards', data=rewards, compression='gzip')
-            grp.create_dataset('gameovers', data=gameovers, compression='gzip')
-            print(f"Saved {len(states)} samples to memory buffer")
-
-    
-    # TODO: store the number of steps!
     def _save_checkpoint(self):
         # Store the memory to disk.
         memory_path = "./output/models/memory.h5"
-        self._store_buffer_h5(out_path=memory_path)
+        self.memory.store_buffer_h5(out_path=memory_path)
 
         checkpoint = {
             'episode': self.num_episodes,
+            'steps': self.num_steps,
             'record': self.record,
             'epsilon': self.epsilon,
             'model_state_dict': self.model.state_dict(),
@@ -550,28 +526,9 @@ class AtariAgent:
         torch.save(checkpoint, self.out_model_path)
 
 
-    def _load_buffer_h5(self, path, group_name='common_memory'):
-        with h5py.File(path, 'r') as f:
-                
-            # Load samples to ram.
-            states = f[group_name]['states'][:]
-            actions = f[group_name]['actions'][:]
-            rewards = f[group_name]['rewards'][:]
-            next_states = f[group_name]['next_states'][:]
-            gameovers = f[group_name]['gameovers'][:]
-            
-            experiences = zip(states, actions, rewards, next_states, gameovers)
-            
-            # Extend memory.
-            self.memory.extend(experiences)
-            print(f"INFO: Loaded {len(self.memory)} samples into memory buffer.")
-
-
-    # TODO: load the number of steps.
-    def _load_checkpoint(self, checkpoint_path):
+    def _load_checkpoint(self, checkpoint_path, load_buffer):
         # Load the checkpoint file (to CPU).
         checkpoint = torch.load(checkpoint_path, weights_only=False, map_location=self.device)
-        
         # Apply saved states.
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.model.to(self.device)
@@ -580,12 +537,15 @@ class AtariAgent:
         
         # Restore metadata.
         self.num_episodes = checkpoint['episode']
+        self.num_steps = checkpoint['steps']
         self.record = checkpoint['record']
         self.epsilon = checkpoint['epsilon']
         self.record_replay = checkpoint['record_replay']
 
-        memory_path = checkpoint['memory_path']
-        self._load_buffer_h5(path=memory_path)
+        if load_buffer:
+            memory_path = checkpoint['memory_path']
+            self.memory.load_buffer_h5(path=memory_path)
+
         print(f"INFO: Checkpoint restored.")
 
     
@@ -619,7 +579,7 @@ class AtariAgent:
 
         episode_steps = 0
 
-        losses = []
+        episode_max_loss = 0
 
         # Store info to replay the record.
         actions_replay = []
@@ -634,7 +594,6 @@ class AtariAgent:
             final_move = self.get_action(state_old)
             self.num_steps += 1
             episode_steps += 1
-
     
             # Do the action, save reward, gameover and current score.
             reward, gameover, score = self.game.play_step(final_move)
@@ -644,9 +603,9 @@ class AtariAgent:
             self.remember(state_old, final_move, reward, state_new, gameover)
 
             # Train on batch.
-            # TODO: logging this loss is useless. Log max loss or raw loss.
-            loss = self._train_long_memory()
-            losses.append(loss)
+            if len(self.memory) > self.batch_size:
+                loss = self._train_long_memory()
+                episode_max_loss = max(episode_max_loss, loss)
 
             # Update episode reward.
             episode_reward += reward
@@ -701,11 +660,9 @@ class AtariAgent:
                 reward_last_100.append(episode_reward)
                 mean_reward_100 = sum(reward_last_100) / len(reward_last_100)
 
-                mean_loss_100 = sum(losses) / len(losses)
-
                 self.print_info(score, mean_score, mean_score_100, total_score, mean_reward_100, episode_steps)
 
-                csv_line = f"{mean_score},{mean_score_100},{score},{mean_reward},{mean_reward_100},{episode_reward},{self.epsilon},{mean_loss_100}\n"
+                csv_line = f"{mean_score},{mean_score_100},{score},{mean_reward},{mean_reward_100},{episode_reward},{self.epsilon},{episode_max_loss}\n"
 
                 # Save stats in csv.
                 if self.out_csv_path is not None:
@@ -715,5 +672,4 @@ class AtariAgent:
                 # Reset stats.
                 episode_reward = 0
                 episode_steps = 0
-
-                losses = []
+                episode_max_loss = 0
