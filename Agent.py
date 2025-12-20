@@ -5,8 +5,7 @@ import torch
 from Game import SnakeGame, Direction, Point, BLOCK_SIZE
 from Model import *
 import os
-
-import h5py
+from Utils import ReplayBuffer
 
 
 class BlindAgent():
@@ -19,6 +18,7 @@ class BlindAgent():
             decaying_epsilon = 0.999,
             min_epsilon      = 0.01,
             gamma            = 0.9,
+            target_sync      = 100,
             out_model_path   = './model.pth',
             out_csv_path     = None,
             device           = 'cpu',
@@ -33,19 +33,32 @@ class BlindAgent():
         self.decaying_epsilon = decaying_epsilon
         self.min_epsilon = min_epsilon
 
-        # Dataset with pairs (state, target)
-        self.memory = deque(maxlen=max_dataset_size)
-        # Used for long term train.
-        self.batch_size = batch_size
-
         # Device.
         self.device = device
 
+        # Dataset with pairs (state, target)
+        self.memory = ReplayBuffer(
+                state_shape=(11, ),
+                action_dim=3,
+                max_size=max_dataset_size,
+                device=self.device
+        )
+        self.batch_size = batch_size
+
+        self.fixed_states = torch.zeros((250, 11), device=self.device)
+
         # Action-value function approximator.
         self.model = Linear_QNet(11, 128, 3).to(self.device)
+        self.target_model = Linear_QNet(11, 128, 3).to(self.device)
+        self.target_sync = target_sync
 
         # Model trainer.
-        self.trainer = QTrainer(self.model, lr, self.gamma)
+        self.trainer = QTrainer(
+                self.model,
+                self.target_model,
+                lr,
+                self.gamma
+        )
 
         # The game.
         self.game = SnakeGame(gui=gui)
@@ -68,10 +81,16 @@ class BlindAgent():
 
         # Create the output csv file.
         if self.out_csv_path is not None:
-            with open(self.out_csv_path, 'w') as f:
-                f.write("avgScore,mean_score_20,score,total_score\n")
+            if not os.path.exists(self.out_csv_path):
+                with open(self.out_csv_path, 'w') as f:
+                    f.write("mean_score,mean_score_100,score,epsilon,max_loss,avg_q\n")
             print("INFO: Stats will be stored in", self.out_csv_path)
     
+    
+    def _target_sync(self):
+        """Synchronise main network and target network parameters"""
+        self.target_model.load_state_dict(self.model.state_dict())
+
 
     def get_state(self, game):
         # Get snake head.
@@ -126,40 +145,21 @@ class BlindAgent():
             game.food.y > game.head.y   # food down
         ]
 
-        return np.array(state, dtype=int)
+        return torch.tensor(state, dtype=torch.float)
 
 
     def _remember(self, state, action, reward, next_state, gameover):
-        self.memory.append((state, action, reward, next_state, gameover))
-
-
-    def _train_short_memory(self, state, action, reward, next_state, gameover):
-        # Transform into tensor.
-        state = torch.tensor(state, dtype=torch.float, device=self.device).unsqueeze(0)
-        action = torch.tensor(action, dtype=torch.float, device=self.device).unsqueeze(0)
-        reward = torch.tensor(reward, dtype=torch.float, device=self.device).unsqueeze(0)
-        next_state = torch.tensor(next_state, dtype=torch.float, device=self.device).unsqueeze(0)
-        gameover = torch.tensor(gameover, dtype=torch.bool, device=self.device).unsqueeze(0)
-        self.trainer.train_step(state, action, reward, next_state, gameover)
+        self.memory.append(state, action, reward, next_state, gameover)
 
 
     def _train_long_memory(self):
-        # Define the batch.
-        if len(self.memory) > self.batch_size:
-            batch = random.sample(self.memory, self.batch_size)
-        else:
-            batch = self.memory
+        # Create batch.
+        states, actions, rewards, next_states, gameovers = self.memory.sample_buffer(self.batch_size)
 
-        states, actions, rewards, next_states, gameovers = [np.array(x) for x in zip(*batch)]
+        # Train and return loss.
+        loss = self.trainer.train_step(states, actions, rewards, next_states, gameovers)
+        return loss 
 
-        # Transform in tensors.
-        states = torch.tensor(states, dtype=torch.float, device=self.device)
-        actions = torch.tensor(actions, dtype=torch.float, device=self.device)
-        rewards = torch.tensor(rewards, dtype=torch.float, device=self.device)
-        next_states = torch.tensor(next_states, dtype=torch.float, device=self.device)
-        gameovers = torch.tensor(gameovers, dtype=torch.bool, device=self.device)
-
-        self.trainer.train_step(states, actions, rewards, next_states, gameovers)
 
     def get_action(self, state):
         # The action to take.
@@ -168,37 +168,26 @@ class BlindAgent():
         # Get the 3 values Q(state, a) for each action a.
         self.model.eval()
         with torch.no_grad():
-            state0 = torch.tensor(state, dtype=torch.float)
+            state0 = state.detach().clone()
             state0 = torch.unsqueeze(state0, 0).to(self.device)
             prediction = self.model(state0)
 
         # Gready choice.
         greedy_idx = torch.argmax(prediction).item()
-        # Non-gredy choices.
+        # Non-gready choices.
         rnd_actions = np.delete(np.array([0, 1, 2]), greedy_idx).tolist()
         
         # Choose the move.
-        if random.random() < self.epsilon:
-            # Exploration.
+        if self.num_steps < 1000:
+            action = random.randint(0, 2)
+            final_move[action] = 1
+        elif random.random() < self.epsilon: # Exploration.
             action = np.random.choice(rnd_actions, p=[0.5, 0.5])
             final_move[action] = 1
         else: # Exploitation.
             final_move[greedy_idx] = 1
 
         return final_move
-
-
-    def print_info(self, score, mean_score, mean_score_20, total_score):
-        print(
-            f"INFO: GAME: {self.num_episodes}\n"
-            f"\tRecord: {self.record}\n"
-            f"\tSteps: {self.num_steps}\n"
-            f"\tScore: {score}\n"
-            f"\tMean score: {mean_score}\n"
-            f"\tMean score last 20: {mean_score_20}\n"
-            f"\tTotal score: {total_score}\n"
-            f"\tepsilon: {self.epsilon}"
-        )
 
 
     def _save_checkpoint(self):
@@ -208,9 +197,8 @@ class BlindAgent():
             'epsilon': self.epsilon,
             'model_state_dict': self.model.state_dict(),
             'optimizer_state_dict': self.trainer.optimizer.state_dict(),
-            'memory': self.memory,
+            #'memory': self.memory,
             'record_replay': self.record_replay
-            # Add any other required variables (like epsilon value, etc.)
         }
         torch.save(checkpoint, self.out_model_path)
 
@@ -229,32 +217,47 @@ class BlindAgent():
         self.record = checkpoint['record']
         self.epsilon = checkpoint['epsilon']
         self.record_replay = checkpoint['record_replay']
-        self.memory = checkpoint['memory']
-        print(f"INFO: Checkpoint restored. Resuming training from Episode {self.num_episodes}.")
+        #self.memory = checkpoint['memory']
+        print(f"INFO: Checkpoint restored.")
     
+
+    def _target_sync(self):
+        """Synchronise main network and target network parameters"""
+        self.target_model.load_state_dict(self.model.state_dict())
+
 
     def train(self):
         total_score = 0
         score_last_100 = deque(maxlen=100) # Score of last 100 games.
 
+        episode_steps = 0
+        episode_max_loss = 0
+
         # Store info to replay the record.
         actions_replay = []
+        episode_max_loss = 0
         food_replay = [self.game.food]
 
         while True:
             # Save current state.
             state_old = self.get_state(self.game)
+            
+            if self.num_steps < 250:
+                self.fixed_states[self.num_steps] = state_old
     
             # Choose action to perform.
             final_move = self.get_action(state_old)
             self.num_steps += 1
+            episode_steps += 1
  
             # Do the action, save reward, gameover and current score.
             reward, gameover, score = self.game.play_step(final_move)
             state_new = self.get_state(self.game)
     
-            # Train short memory.
-            self._train_short_memory(state_old, final_move, reward, state_new, gameover)
+            # Train step.
+            if len(self.memory) > self.batch_size:
+                loss = self._train_long_memory()
+                episode_max_loss = max(episode_max_loss, loss)
     
             # Remember.
             self._remember(state_old, final_move, reward, state_new, gameover)
@@ -262,12 +265,16 @@ class BlindAgent():
             # Store data for replay.
             actions_replay.append(final_move)
             food_replay.append(self.game.food)
+            
+            # Sync networks if necessary.
+            if not self.num_steps % self.target_sync:
+                print("Info: Syncronizing target model with main model...")
+                self._target_sync()
 
             if gameover:
                 # Train long memory, plot result.
                 self.game.reset()
                 self.num_episodes += 1
-                self._train_long_memory()
     
                 if score > self.record:
                     # Save record.
@@ -292,8 +299,37 @@ class BlindAgent():
                 score_last_100.append(score)
                 mean_last_100 = sum(score_last_100) / len(score_last_100)
 
-                # Print info in terminal.
-                self.print_info(score, mean_score, mean_last_100, total_score)
+                self.model.eval()
+                with torch.no_grad():
+                    avg_q = self.model(self.fixed_states)
+                    avg_q = torch.max(avg_q, dim=1).values # shape: N
+                    avg_q = avg_q.mean().item()
+
+                # Log info to terminal.
+                print(
+                    "INFO:\n"
+                    f"\tGAME: {self.num_episodes}\n"
+                    f"\tRecord: {self.record}\n"
+                    f"\tSteps: {self.num_steps}\n"
+                    f"\tBuffer memory size: {len(self.memory)}\n"
+                    f"\tScore: {score}\n"
+                    f"\tDuration (steps): {episode_steps}\n"
+                    f"\tMean score: {mean_score}\n"
+                    f"\tMean score last 100: {mean_last_100}\n"
+                    f"\tTotal score: {total_score}\n"
+                    f"\tepsilon: {self.epsilon}"
+                )
+
+                csv_line = f"{mean_score},{mean_last_100},{score},{self.epsilon},{episode_max_loss},{avg_q}\n"
+
+                # Save stats in csv.
+                if self.out_csv_path is not None:
+                    with open(self.out_csv_path, 'a') as f:
+                        f.write(csv_line)
+
+                # Restore stats.
+                episode_max_loss = 0
+                episode_steps = 0
 
                 # Save stats in csv.
                 if self.out_csv_path is not None:
@@ -308,7 +344,6 @@ class AtariAgent:
             batch_size       = 32,
             lr               = 0.001,
             epsilon          = 0.1,
-            decaying_epsilon = 0.999,
             min_epsilon      = 0.01,
             gamma            = 0.9,
             target_sync      = 100,
@@ -325,7 +360,6 @@ class AtariAgent:
 
         # Used for eps-greedy choice.
         self.epsilon = epsilon
-        self.decaying_epsilon = decaying_epsilon
         self.min_epsilon = min_epsilon
 
         # The game.
@@ -350,6 +384,9 @@ class AtariAgent:
         # Device.
         self.device = device
 
+        # To monitor action value (Q)
+        self.fixed_states = torch.zeros((250, 4, self.frame_rows, self.frame_cols), device=self.device)
+
         # Action-value function approximator (main model).
         self.model = CNN_QNet(
                 in_chan=4,
@@ -368,7 +405,7 @@ class AtariAgent:
         self.target_sync = target_sync
 
         # Model trainer.
-        self.trainer = QTrainer_target(
+        self.trainer = QTrainer(
                 self.model,
                 self.target_model,
                 lr,
@@ -395,7 +432,7 @@ class AtariAgent:
         if self.out_csv_path is not None:
             if not os.path.exists(self.out_csv_path):
                 with open(self.out_csv_path, 'w') as f:
-                    f.write("mean_score,mean_score_100,score,mean_reward,mean_reward_100,reward,epsilon,mean_loss_100\n")
+                    f.write("mean_score,mean_score_100,score,mean_reward_100,epsilon,max_loss,avg_q\n")
             print("INFO: Stats will be stored in", self.out_csv_path)
  
 
@@ -491,23 +528,6 @@ class AtariAgent:
         return final_move
 
 
-    def print_info(self, score, mean_score, mean_score_100, total_score, mean_reward_100, episode_steps):
-        print(
-            "INFO:\n"
-            f"\tGAME: {self.num_episodes}\n"
-            f"\tRecord: {self.record}\n"
-            f"\tSteps: {self.num_steps}\n"
-            f"\tBuffer memory size: {len(self.memory)}\n"
-            f"\tScore: {score}\n"
-            f"\tDuration (steps): {episode_steps}\n"
-            f"\tMean score: {mean_score}\n"
-            f"\tMean score last 100: {mean_score_100}\n"
-            f"\tMean reward last 100: {mean_reward_100}\n"
-            f"\tTotal score: {total_score}\n"
-            f"\tepsilon: {self.epsilon}"
-        )
-
-    
     def _save_checkpoint(self):
         # Store the memory to disk.
         memory_path = "./output/models/memory.h5"
@@ -555,15 +575,14 @@ class AtariAgent:
 
 
     def update_epsilon(self):
-
-        if self.num_steps > 1_000_000:
+        if self.num_steps > self.memory.capacity():
             # Phase 2: Fixed epsilon
             self.epsilon = self.min_epsilon
         else:
             # Phase 1: Linear annealing
             
             # Calculate the decay factor (1.0 at start, 0.0 at end)
-            decay_progress = self.num_steps / 1_000_000
+            decay_progress = self.num_steps / self.memory.capacity()
             
             # Calculate the current epsilon value
             self.epsilon = self.min_epsilon + (1 - self.min_epsilon) * (1 - decay_progress)
@@ -573,13 +592,11 @@ class AtariAgent:
         total_score = 0
         score_last_100 = deque(maxlen=100) 
 
-        tot_reward = 0
+        episode_steps = 0
+        episode_max_loss = 0
+
         episode_reward = 0
         reward_last_100 = deque(maxlen=100)
-
-        episode_steps = 0
-
-        episode_max_loss = 0
 
         # Store info to replay the record.
         actions_replay = []
@@ -590,15 +607,18 @@ class AtariAgent:
         state_old = self.get_state(self.game)
 
         while True:
+
+            # Store states to compute avg_q.
+            if self.num_steps < 250:
+                self.fixed_states[self.num_steps] = state_old
+
             # Choose action to perform.
             final_move = self.get_action(state_old)
-            self.num_steps += 1
-            episode_steps += 1
-    
+ 
             # Do the action, save reward, gameover and current score.
             reward, gameover, score = self.game.play_step(final_move)
             state_new = self.get_state(self.game)
-    
+ 
             # Remember.
             self.remember(state_old, final_move, reward, state_new, gameover)
 
@@ -607,9 +627,6 @@ class AtariAgent:
                 loss = self._train_long_memory()
                 episode_max_loss = max(episode_max_loss, loss)
 
-            # Update episode reward.
-            episode_reward += reward
-            
             # Update state_old for the next iteration.
             state_old = state_new
 
@@ -624,6 +641,12 @@ class AtariAgent:
 
             # Decaying epsilon.
             self.update_epsilon()
+
+            # Update some stats.
+            self.num_steps += 1
+            episode_steps += 1
+            episode_reward += reward
+
     
             if gameover:
                 # Reset game.
@@ -655,14 +678,32 @@ class AtariAgent:
                 score_last_100.append(score)
                 mean_score_100 = sum(score_last_100) / len(score_last_100)
 
-                tot_reward += episode_reward
-                mean_reward = tot_reward / self.num_episodes
                 reward_last_100.append(episode_reward)
                 mean_reward_100 = sum(reward_last_100) / len(reward_last_100)
 
-                self.print_info(score, mean_score, mean_score_100, total_score, mean_reward_100, episode_steps)
 
-                csv_line = f"{mean_score},{mean_score_100},{score},{mean_reward},{mean_reward_100},{episode_reward},{self.epsilon},{episode_max_loss}\n"
+                self.model.eval()
+                with torch.no_grad():
+                    avg_q = self.model(self.fixed_states)
+                    avg_q = torch.max(avg_q, dim=1).values # shape: N
+                    avg_q = avg_q.mean().item()
+
+                print(
+                    "INFO:\n"
+                    f"\tGAME: {self.num_episodes}\n"
+                    f"\tRecord: {self.record}\n"
+                    f"\tSteps: {self.num_steps}\n"
+                    f"\tBuffer memory size: {len(self.memory)}\n"
+                    f"\tScore: {score}\n"
+                    f"\tDuration (steps): {episode_steps}\n"
+                    #f"\tMean score: {mean_score}\n"
+                    f"\tMean score last 100: {mean_score_100}\n"
+                    f"\tMean reward last 100: {mean_reward_100}\n"
+                    f"\tTotal score: {total_score}\n"
+                    f"\tepsilon: {self.epsilon}"
+                )
+
+                csv_line = f"{mean_score},{mean_score_100},{score},{mean_reward_100},{self.epsilon},{episode_max_loss},{avg_q}\n"
 
                 # Save stats in csv.
                 if self.out_csv_path is not None:
@@ -670,6 +711,6 @@ class AtariAgent:
                         f.write(csv_line)
 
                 # Reset stats.
-                episode_reward = 0
                 episode_steps = 0
                 episode_max_loss = 0
+                episode_reward = 0

@@ -1,7 +1,7 @@
 from Agent import *
 from Game import ReplaySnakeGame, Point
 
-MAX_DATASET_SIZE = 1_000_000
+MAX_DATASET_SIZE = int(1_000_000 / 4)
 BATCH_SIZE = 32
 LR = 0.00025
 
@@ -10,10 +10,11 @@ DECAYING_FACTOR = 0.995
 MIN_EPSILON = 0.01
 GAMMA = 0.99
 
-TARGET_SYNC = 10_000
+TARGET_SYNC = 5_000
 
 OUT_MODEL_FILE_PATH = "./output/models/model.pth"
-OUT_CSV_PATH = "./output/csv/avg_score2.csv"
+OUT_CSV_PATH = "./output/csv/stats.csv"
+
 
 if __name__ == "__main__": 
 
@@ -29,7 +30,7 @@ if __name__ == "__main__":
         print("INFO: CUDA and MPS not available. Running on CPU.")
 
     # BLIND AGENT.
-    #agent = FFNNAgent(
+    #agent = BlindAgent(
     #    max_dataset_size = MAX_DATASET_SIZE,
     #    batch_size       = BATCH_SIZE,
     #    lr               = LR,
@@ -37,12 +38,33 @@ if __name__ == "__main__":
     #    decaying_epsilon = DECAYING_FACTOR,
     #    min_epsilon      = MIN_EPSILON,
     #    gamma            = GAMMA,
+    #    target_sync      = TARGET_SYNC,
     #    out_model_path   = OUT_MODEL_FILE_PATH,
     #    out_csv_path     = OUT_CSV_PATH,
     #    device           = device,
     #    gui              = False,
-    #    checkpoint_path  = OUT_MODEL_FILE_PATH
+    #    checkpoint_path  = None
     #)
+    #agent.train()
+
+
+    # Lidar AGENT.
+    #agent = LidarAgent(
+    #    max_dataset_size = MAX_DATASET_SIZE,
+    #    batch_size       = BATCH_SIZE,
+    #    lr               = LR,
+    #    epsilon          = EPSILON,
+    #    min_epsilon      = MIN_EPSILON,
+    #    gamma            = GAMMA,
+    #    target_sync      = TARGET_SYNC,
+    #    out_model_path   = OUT_MODEL_FILE_PATH,
+    #    out_csv_path     = OUT_CSV_PATH,
+    #    device           = device,
+    #    gui              = False,
+    #    checkpoint_path  = OUT_MODEL_FILE_PATH,
+    #    load_buffer      = False
+    #)
+    #print(len(agent.memory))
     #agent.train()
 
     # ATARI AGENT.
@@ -51,7 +73,6 @@ if __name__ == "__main__":
         batch_size       = BATCH_SIZE,
         lr               = LR,
         epsilon          = EPSILON,
-        decaying_epsilon = DECAYING_FACTOR,
         min_epsilon      = MIN_EPSILON,
         gamma            = GAMMA,
         target_sync      = TARGET_SYNC,
@@ -59,8 +80,11 @@ if __name__ == "__main__":
         out_csv_path     = OUT_CSV_PATH,
         device           = device,
         gui              = False,
-        checkpoint_path  = OUT_MODEL_FILE_PATH
+        checkpoint_path  = None,
+        load_buffer      = True
     )
+    #agent.num_steps = 300_000
+    #print(len(agent.memory))
     agent.train()
 
     actions = agent.record_replay['actions']
@@ -68,10 +92,3 @@ if __name__ == "__main__":
     replay = ReplaySnakeGame(foods)
     for action in actions:
         replay.play_step(action)
-
-
-# TODOS:
-# - definire statistiche utili per studiare il comportamento al variare
-#   dei parametri. (e.g. mean score, score received, etc.)
-# - piccoli test facendo variare alcuni dei parametri (e.g. epsilon start)
-# - funzione 'replay' per ricreare il record del modello.

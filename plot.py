@@ -3,7 +3,7 @@ import pandas as pd
 from IPython import display
 import time
 
-INPUT_CSV = "./output/csv/avg_score2.csv"
+INPUT_CSV = "./output/csv/stats.csv"
 
 # Optional: Make the plots look nicer
 plt.style.use('ggplot') 
@@ -23,11 +23,11 @@ def plot_training():
     scores = df.get('score')
     mean_scores_100 = df.get('mean_score_100')
     tot_avg_score = df.get('mean_score')
+    mean_reward_100 = df.get('mean_reward_100')
+
     
-    rewards = df.get('reward')
-    mean_rewards_100 = df.get('mean_reward_100')
-    
-    losses = df.get('mean_loss_100')
+    avg_q = df.get('avg_q')
+    losses = df.get('max_loss')
     epsilon = df.get('epsilon')
     
     time_steps = range(len(df))
@@ -38,7 +38,7 @@ def plot_training():
     # Create a figure with a 2x2 grid size
     fig = plt.figure(figsize=(10, 6))
     
-    # 1. Top Left: SCORES
+    # 1. Top Left: SCORES and REWARDS
     ax1 = fig.add_subplot(2, 2, 1)
     if scores is not None:
         ax1.plot(time_steps, scores, label='Raw Score', color='blue', alpha=0.3)
@@ -46,18 +46,19 @@ def plot_training():
         ax1.plot(time_steps, mean_scores_100, label='Mean Score (100)', color='blue', linewidth=2)
     if tot_avg_score is not None:
         ax1.plot(time_steps, tot_avg_score, label='Total Avg', color='green', linestyle='--')
+    if mean_reward_100 is not None:
+        ax1.plot(time_steps, mean_reward_100, label='Mean Reward (100)', color='cyan', linewidth=2)
+        
     ax1.set_title('Game Scores')
     ax1.set_ylabel('Score')
     ax1.legend(loc='upper left')
 
-    # 2. Top Right: REWARDS
+    # 2. Top Right: AVG Q value.
     ax2 = fig.add_subplot(2, 2, 2)
-    if rewards is not None:
-        ax2.plot(time_steps, rewards, label='Raw Reward', color='orange', alpha=0.3)
-    if mean_rewards_100 is not None:
-        ax2.plot(time_steps, mean_rewards_100, label='Mean Reward (100)', color='darkorange', linewidth=2)
-    ax2.set_title('Rewards')
-    ax2.set_ylabel('Reward')
+    if avg_q is not None:
+        ax2.plot(time_steps, avg_q, label='Q(s, a)', color='orange')
+    ax2.set_title('Average action value (Q)')
+    ax2.set_ylabel('Q(s, a)')
     ax2.legend(loc='upper left')
 
     # 3. Bottom Left: LOSS
@@ -79,6 +80,7 @@ def plot_training():
     # Clean up layout and display
     plt.tight_layout()
     display.display(plt.gcf())
+    plt.savefig("plot.png")
     
     # Close the figure to prevent memory leaks in the loop
     return fig
@@ -86,5 +88,5 @@ def plot_training():
 if __name__ == '__main__':
     while True:
         fig = plot_training()
-        plt.pause(5) # Update every 5 seconds
+        plt.pause(10) # Update every 5 seconds
         plt.close(fig)

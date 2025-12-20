@@ -102,11 +102,12 @@ class SnakeGame:
     def play_step(self, action):
         self.step_counter += 1
 
-        # 1. Collect user input, upate direction if needed.
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit()
-                quit()
+        # Manage quit game.
+        if self.gui:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    quit()
         
         # 2. Move.
         self._move(action) # Update the head.

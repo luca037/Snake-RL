@@ -50,6 +50,8 @@ class ReplayBuffer:
     def __len__(self):
         return min(self.mem_cntr, self.mem_size)
 
+    def capacity(self):
+        return self.mem_size
     
     def store_buffer_h5(self, out_path, group_name='common_memory'):
         size = min(self.mem_cntr, self.mem_size)
