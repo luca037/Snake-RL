@@ -331,10 +331,353 @@ class BlindAgent():
                 episode_max_loss = 0
                 episode_steps = 0
 
+
+class LidarAgent():
+    
+    def __init__(self, 
+            max_dataset_size = 10_000,
+            batch_size       = 32,
+            lr               = 0.001,
+            epsilon          = 0.1,
+            min_epsilon      = 0.01,
+            gamma            = 0.9,
+            target_sync      = 100,
+            out_model_path   = './model.pth',
+            out_csv_path     = None,
+            device           = 'cpu',
+            gui              = False,
+            checkpoint_path  = None,
+            load_buffer      = False
+    ):
+        # Disount factor.
+        self.gamma = gamma
+
+        # Used for eps-greedy choice.
+        self.epsilon = epsilon
+        self.min_epsilon = min_epsilon
+
+        # Device.
+        self.device = device
+
+        # Dataset with pairs (state, target)
+        self.memory = ReplayBuffer(
+                state_shape=(28, ),
+                action_dim=3,
+                max_size=max_dataset_size,
+                device=self.device
+        )
+        self.batch_size = batch_size
+
+        # Action-value function approximator.
+        self.model = Linear_QNet(28, 128, 3).to(self.device)
+        self.target_model = Linear_QNet(28, 128, 3).to(self.device)
+        self.target_sync = target_sync
+
+        # Model trainer.
+        self.trainer = QTrainer(self.model, self.target_model, lr, self.gamma)
+
+        # The game.
+        self.game = SnakeGame(gui=gui)
+
+        # Current record.
+        self.record = 0
+        self.record_replay = {'actions': [], 'foods': []}
+
+        # Episodes and steps counters.
+        self.num_episodes = 0
+        self.num_steps = 0
+
+        # Out path model and csv file.
+        self.out_model_path = out_model_path
+        self.out_csv_path = out_csv_path
+
+        # Load checkpoint_path, if necesary.
+        if checkpoint_path is not None:
+            self._load_checkpoint(checkpoint_path, load_buffer)
+
+        # Create the output csv file.
+        if self.out_csv_path is not None:
+            if not os.path.exists(self.out_csv_path):
+                with open(self.out_csv_path, 'w') as f:
+                    f.write("mean_score,mean_score_100,score,mean_reward_100,epsilon,max_loss,avg_q\n")
+            print("INFO: Stats will be stored in", self.out_csv_path)
+
+
+    def get_state(self, game):
+        head = game.snake[0]
+        
+        # Define the 8 directions.
+        directions = [
+            (-BLOCK_SIZE, 0),           # Left
+            (-BLOCK_SIZE, -BLOCK_SIZE), # Up-Left
+            (0, -BLOCK_SIZE),           # Up
+            (BLOCK_SIZE, -BLOCK_SIZE),  # Up-Right
+            (BLOCK_SIZE, 0),            # Right
+            (BLOCK_SIZE, BLOCK_SIZE),   # Down-Right
+            (0, BLOCK_SIZE),            # Down
+            (-BLOCK_SIZE, BLOCK_SIZE)   # Down-Left
+        ]
+    
+        # Current state.
+        state = []
+    
+        # For each direction.
+        for dx, dy in directions:
+            
+            # Init starting position (aka snake head).
+            x, y = head.x, head.y
+            
+            distance = 0    # From wall.
+            food_found = 0  # 1=>True, 0=>False.
+            body_found = 0  # 1=>True, 0=>False.
+            
+            # Check each position along current direction.
+            while True:
+                # Move to next position along current direction.
+                x += dx
+                y += dy
+                distance += 1
+                
+                # Collision with wall check.
+                if x < 0 or x >= game.w or y < 0 or y >= game.h:
+                    wall_inv_dist = 1.0 / distance
+                    break  # Stop looking in this direction, go to next one.
+                
+                # Food check.
+                if food_found == 0 and x == game.food.x and y == game.food.y:
+                    food_found = 1
+                
+                # Body check.
+                if body_found == 0:
+                    for point in game.snake[1:]:
+                        if x == point.x and y == point.y:
+                            body_found = 1
+                            break # Stop when you see nearest piece.
+    
+            # Store the triplets associated to current direction.
+            state.append(food_found)
+            state.append(body_found)
+            state.append(wall_inv_dist)
+
+
+        # Append current direction to state.
+        state.append(game.direction == Direction.LEFT)
+        state.append(game.direction == Direction.RIGHT)
+        state.append(game.direction == Direction.UP)
+        state.append(game.direction == Direction.DOWN)
+    
+        return torch.tensor(state, dtype=torch.float)
+
+
+    def _target_sync(self):
+        """Synchronise main network and target network parameters"""
+        self.target_model.load_state_dict(self.model.state_dict())
+
+
+    def _remember(self, state, action, reward, next_state, gameover):
+        self.memory.append(state, action, reward, next_state, gameover)
+
+
+    def _train_long_memory(self):
+        # Create batch.
+        states, actions, rewards, next_states, gameovers = self.memory.sample_buffer(self.batch_size)
+
+        # Train and return loss.
+        loss = self.trainer.train_step(states, actions, rewards, next_states, gameovers)
+        return loss 
+
+
+    def get_action(self, state):
+        # The action to take.
+        final_move = [0,0,0]
+
+        # Get the 3 values Q(state, a) for each action a.
+        self.model.eval()
+        with torch.no_grad():
+            state0 = state.detach().clone()
+            state0 = torch.unsqueeze(state0, 0).to(self.device)
+            prediction = self.model(state0)
+
+        # Gready choice.
+        greedy_idx = torch.argmax(prediction).item()
+        # Non-gready choices.
+        rnd_actions = np.delete(np.array([0, 1, 2]), greedy_idx).tolist()
+        
+        # Choose the move.
+        if self.num_steps < 10_000:
+            action = random.randint(0, 2)
+            final_move[action] = 1
+        elif random.random() < self.epsilon: # Exploration.
+            action = np.random.choice(rnd_actions, p=[0.5, 0.5])
+            final_move[action] = 1
+        else: # Exploitation.
+            final_move[greedy_idx] = 1
+
+        return final_move
+
+
+    def _save_checkpoint(self):
+        # Store the memory to disk.
+        memory_path = "./output/models/memory.h5"
+        self.memory.store_buffer_h5(out_path=memory_path)
+
+        checkpoint = {
+            'episode': self.num_episodes,
+            'steps': self.num_steps,
+            'record': self.record,
+            'epsilon': self.epsilon,
+            'model_state_dict': self.model.state_dict(),
+            'optimizer_state_dict': self.trainer.optimizer.state_dict(),
+            'memory_path': memory_path,
+            'record_replay': self.record_replay
+        }
+        torch.save(checkpoint, self.out_model_path)
+
+
+    def _load_checkpoint(self, checkpoint_path, load_buffer):
+        # Load the checkpoint file (to CPU).
+        checkpoint = torch.load(checkpoint_path, weights_only=False, map_location=self.device)
+        # Apply saved states.
+        self.model.load_state_dict(checkpoint['model_state_dict'])
+        self.model.to(self.device)
+        self._target_sync()
+        self.trainer.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        
+        # Restore metadata.
+        self.num_episodes = checkpoint['episode']
+        self.num_steps = checkpoint['steps']
+        self.record = checkpoint['record']
+        self.epsilon = checkpoint['epsilon']
+        self.record_replay = checkpoint['record_replay']
+
+        if load_buffer:
+            memory_path = checkpoint['memory_path']
+            self.memory.load_buffer_h5(path=memory_path)
+
+        print(f"INFO: Checkpoint restored.")
+
+
+    def update_epsilon(self):
+        if self.num_steps > self.memory.capacity():
+            # Phase 2: Fixed epsilon
+            self.epsilon = self.min_epsilon
+        else:
+            # Phase 1: Linear annealing
+            
+            # Calculate the decay factor (1.0 at start, 0.0 at end)
+            decay_progress = self.num_steps / self.memory.capacity() 
+            
+            # Calculate the current epsilon value
+            self.epsilon = self.min_epsilon + (1 - self.min_epsilon) * (1 - decay_progress)
+    
+
+    def train(self):
+        total_score = 0
+        score_last_100 = deque(maxlen=100) # Score of last 100 games.
+
+        tot_reward = 0
+        episode_reward = 0
+        reward_last_100 = deque(maxlen=100)
+        episode_steps = 0
+
+        # Store info to replay the record.
+        actions_replay = []
+        episode_max_loss = 0
+        food_replay = [self.game.food]
+
+        while True:
+            # Save current state.
+            state_old = self.get_state(self.game)
+    
+            # Choose action to perform.
+            final_move = self.get_action(state_old)
+            self.num_steps += 1
+            episode_steps += 1
+ 
+            # Do the action, save reward, gameover and current score.
+            reward, gameover, score = self.game.play_step(final_move)
+            state_new = self.get_state(self.game)
+
+            # Update episode reward.
+            episode_reward += reward
+    
+            # Train step.
+            if len(self.memory) > self.batch_size:
+                loss = self._train_long_memory()
+                episode_max_loss = max(episode_max_loss, loss)
+    
+            # Remember.
+            self._remember(state_old, final_move, reward, state_new, gameover)
+
+            # Store data for replay.
+            actions_replay.append(final_move)
+            food_replay.append(self.game.food)
+
+            self.update_epsilon()
+            
+            # Sync networks if necessary.
+            if not self.num_steps % self.target_sync:
+                print("Info: Syncronizing target model with main model...")
+                self._target_sync()
+
+            if gameover:
+                # Train long memory, plot result.
+                self.game.reset()
+                self.num_episodes += 1
+    
+                if score > self.record:
+                    # Save record.
+                    self.record = score
+                    self.record_replay['actions'] = actions_replay
+                    self.record_replay['foods'] = food_replay
+
+                    # Create checkpoint.
+                    print("INFO: New record! Saving checkpoint...")
+                    self._save_checkpoint()
+
+                # Reset replay.
+                actions_replay = []
+                food_replay = []
+    
+                # Update stats.
+                total_score += score
+                mean_score = total_score / self.num_episodes
+                score_last_100.append(score)
+                mean_last_100 = sum(score_last_100) / len(score_last_100)
+
+                tot_reward += episode_reward
+                mean_reward = tot_reward / self.num_episodes
+                reward_last_100.append(episode_reward)
+                mean_reward_100 = sum(reward_last_100) / len(reward_last_100)
+
+                # Log info to terminal.
+                print(
+                    "INFO:\n"
+                    f"\tGAME: {self.num_episodes}\n"
+                    f"\tRecord: {self.record}\n"
+                    f"\tSteps: {self.num_steps}\n"
+                    f"\tBuffer memory size: {len(self.memory)}\n"
+                    f"\tScore: {score}\n"
+                    f"\tDuration (steps): {episode_steps}\n"
+                    f"\tMean score: {mean_score}\n"
+                    f"\tMean score last 100: {mean_last_100}\n"
+                    f"\tMean reward last 100: {mean_reward_100}\n"
+                    f"\tTotal score: {total_score}\n"
+                    f"\tepsilon: {self.epsilon}"
+                )
+
+                csv_line = f"{mean_score},{mean_last_100},{score},{mean_reward},{mean_reward_100},{episode_reward},{self.epsilon},{episode_max_loss}\n"
+
                 # Save stats in csv.
                 if self.out_csv_path is not None:
                     with open(self.out_csv_path, 'a') as f:
-                        f.write(f"{mean_score},{mean_last_100},{score},{total_score}\n")
+                        f.write(csv_line)
+
+                # Restore stats.
+                episode_max_loss = 0
+                episode_reward = 0
+                episode_steps = 0
+                episode_max_loss = 0
 
 
 # The ATARI agent.
