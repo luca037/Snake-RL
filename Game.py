@@ -110,7 +110,7 @@ class SnakeGame:
                     quit()
         
         # 2. Move.
-        self._move(action) # Update the head.
+        self.move(action) # Update the head.
         self.snake.insert(0, self.head)
 
         # 3. Check if game over.
@@ -122,14 +122,22 @@ class SnakeGame:
             self.snake.pop()
             return reward, game_over, self.score
 
-        # 4. Place new food or just move.
+        # 4. Place new food or just move + reward.
         if self.head == self.food:
             self.score += 1
             reward = 1
             self._place_food()
         else:
-            if len(self.snake) > 10:
-                reward += 0.01
+            ## Give reward for each step.
+            #if len(self.snake) > 10:
+                #reward += 0.01
+
+            ## Give reward if head is on the border.
+            #i = self.head.y // BLOCK_SIZE
+            #j = self.head.x // BLOCK_SIZE
+            #if i == 0 or j == 0 or i == 9 or j == 9:
+            #    reward += 0.02
+
             self.snake.pop()
     
         #self.prev_dist = self.dist
@@ -178,7 +186,7 @@ class SnakeGame:
         pygame.display.flip()
 
 
-    def _move(self, action):
+    def move(self, action, perform=True):
         # Action parsing. -> [straight, right, left]
         
         clock_wise = [
@@ -201,20 +209,25 @@ class SnakeGame:
             new_idx = (idx - 1) % 4 # Turn left.
             new_dir = clock_wise[new_idx]
 
-        self.direction = new_dir
         
         x = self.head.x
         y = self.head.y
-        if self.direction == Direction.RIGHT:
+        if new_dir == Direction.RIGHT:
             x += BLOCK_SIZE
-        elif self.direction == Direction.LEFT:
+        elif new_dir == Direction.LEFT:
             x -= BLOCK_SIZE
-        elif self.direction == Direction.DOWN:
+        elif new_dir == Direction.DOWN:
             y += BLOCK_SIZE
-        elif self.direction == Direction.UP:
+        elif new_dir == Direction.UP:
             y -= BLOCK_SIZE
             
-        self.head = Point(x, y)
+
+        # Update direction and head if necessary.
+        if perform:
+            self.direction = new_dir
+            self.head = Point(x, y)
+
+        return Point(x, y)
 
 
 # Class that reprsent a replay game.

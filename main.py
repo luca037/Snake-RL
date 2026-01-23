@@ -1,6 +1,8 @@
 from Agent import *
 from Game import ReplaySnakeGame, Point
 
+
+######################### Hyperparameters #####################################
 MAX_DATASET_SIZE = int(1_000_000 / 4)
 BATCH_SIZE = 32
 LR = 0.00025
@@ -8,14 +10,17 @@ RANDOM_STEPS = 50_000
 
 EPSILON = 1
 DECAYING_FACTOR = 0.995
-MIN_EPSILON = 0.01 / 10
+MIN_EPSILON = 0.01 / 100
 GAMMA = 0.99
 
 TARGET_SYNC = 5_000
 
+########################### Output files ######################################
+
 OUT_MODEL_FILE_PATH = "./output/models/model.pth"
 OUT_CSV_PATH = "./output/csv/stats.csv"
 
+##############################################################################
 
 if __name__ == "__main__": 
 
@@ -68,7 +73,7 @@ if __name__ == "__main__":
     ##print(len(agent.memory))
     #agent.train()
 
-    # ATARI AGENT.
+    ## ATARI AGENT.
     #agent = AtariAgent(
     #    max_dataset_size = MAX_DATASET_SIZE,
     #    batch_size       = BATCH_SIZE,
@@ -81,25 +86,24 @@ if __name__ == "__main__":
     #    out_model_path   = OUT_MODEL_FILE_PATH,
     #    out_csv_path     = OUT_CSV_PATH,
     #    device           = device,
-    #    gui              = False,
+    #    gui              = True,
     #    checkpoint_path  = OUT_MODEL_FILE_PATH,
-    #    load_buffer      = False 
+    #    load_buffer      = True
     #)
     ##agent.num_steps = 300_00000
     ##print(len(agent.memory))
-    #agent.train()
+    ##agent.train()
 
-
-    agent = Cerberus(
+    agent = CerberusAgent(
         model1="./output/models/model_atari_61.pth",
         model2="./output/models/model_start19_plus45.pth",
-        model3="./output/models/model_start47_plus39.pth",
+        model3="./output/models/model_start47_plus44.pth",
         device=device,
         gui=False,
         out_model_path=OUT_MODEL_FILE_PATH,
-        checkpoint_path=OUT_MODEL_FILE_PATH
+        checkpoint_path=OUT_MODEL_FILE_PATH,
     )
-    #agent.train()
+    agent.train()
 
     print(agent.record)
     actions = agent.record_replay['actions']

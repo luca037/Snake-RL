@@ -8,168 +8,6 @@ import os
 from Utils import ReplayBuffer
 from abc import ABC, abstractmethod
 
-
-class Cerberus():
-
-    def __init__(self,
-            device          = 'cpu',
-            model1          = None,
-            model2          = None,
-            model3          = None,
-            gui             = False,
-            out_model_path  = "./model.pth",
-            checkpoint_path = None
-    ):
-        self.device = device
-
-        self.agent1 = AtariAgent(device=self.device, checkpoint_path=model1, epsilon=-1)
-        self.agent2 = AtariAgent(device=self.device, checkpoint_path=model2, epsilon=-1)
-        self.agent3 = AtariAgent(device=self.device, checkpoint_path=model3, epsilon=-1)
-
-        self.game = SnakeGame(gui=gui)
-
-        self.num_steps = 0
-        self.num_episodes = 0
-        self.record = 0
-        self.record_replay = {'actions': [], 'foods': []}
-
-        self.out_model_path = out_model_path
-
-        if checkpoint_path is not None:
-            self._load_checkpoint(checkpoint_path)
-
-
-
-    def _load_checkpoint(self, checkpoint_path):
-        # Load the checkpoint file (to CPU).
-        checkpoint = torch.load(checkpoint_path, weights_only=False, map_location=self.device)
-        
-        # Restore metadata.
-        self.num_episodes = checkpoint['episode']
-        self.num_steps = checkpoint['steps']
-        self.record = checkpoint['record']
-        self.record_replay = checkpoint['record_replay']
-        print(f"INFO: Checkpoint restored.")
-
-
-    def _save_checkpoint(self):
-        checkpoint = {
-            'episode': self.num_episodes,
-            'steps': self.num_steps,
-            'record': self.record,
-            'record_replay': self.record_replay
-        }
-        torch.save(checkpoint, self.out_model_path)
-
-    def train(self):
-        total_score = 0
-        score_last_100 = deque(maxlen=100) 
-
-        episode_steps = 0
-        episode_max_loss = 0
-
-        episode_reward = 0
-        reward_last_100 = deque(maxlen=100)
-
-        # Store info to replay the record.
-        actions_replay = []
-        food_replay = [self.game.food]
-
-        # Initial state setup
-        state_old = self.agent1.get_state(self.game)
-
-        score = 0
-
-        while True:
-
-            # Choose action to perform.
-            if score < 25:
-                final_move = self.agent1.get_action(state_old)
-            elif score < 38:
-                final_move = self.agent2.get_action(state_old)
-            else:
-                final_move = self.agent3.get_action(state_old)
- 
-            # Do the action, save reward, gameover and current score.
-            reward, gameover, score = self.game.play_step(final_move)
-            state_new = self.agent1.get_state(self.game)
-
-            # Update state_old for the next iteration.
-            state_old = state_new
-
-            # Store data for replay.
-            actions_replay.append(final_move)
-            food_replay.append(self.game.food)
-            
-            # Update some stats.
-            self.num_steps += 1
-            episode_steps += 1
-            episode_reward += reward
-
-    
-            if gameover:
-                # Reset game.
-                self.game.reset()
-                self.num_episodes += 1
-
-                # Reset stack and take snapshot.
-                self.agent1._on_reset()
-                state_old = self.agent1.get_state(self.game)
-
-                # Save checkpoint if new record reached.
-                if score > self.record:
-                    self.record = score
-                    self.record_replay['actions'] = actions_replay
-                    self.record_replay['foods'] = food_replay
-
-                    # Create checkpoint.
-                    print("INFO: New record! Saving checkpoint...")
-                    self._save_checkpoint()
-
-
-                # Reset replay.
-                actions_replay = []
-                food_replay = []
-        
-                # Update stats.
-                total_score += score
-                mean_score = total_score / self.num_episodes
-                score_last_100.append(score)
-                mean_score_100 = sum(score_last_100) / len(score_last_100)
-
-                reward_last_100.append(episode_reward)
-                mean_reward_100 = sum(reward_last_100) / len(reward_last_100)
-
-                print(
-                    "INFO:\n"
-                    f"\tGAME: {self.num_episodes}\n"
-                    f"\tRecord: {self.record}\n"
-                    f"\tSteps: {self.num_steps}\n"
-                    #f"\tBuffer memory size: {len(self.memory)}\n"
-                    f"\tScore: {score}\n"
-                    f"\tDuration (steps): {episode_steps}\n"
-                    #f"\tMean score: {mean_score}\n"
-                    f"\tMean score last 100: {mean_score_100}\n"
-                    f"\tMean reward last 100: {mean_reward_100}\n"
-                    f"\tTotal score: {total_score}\n"
-                    #f"\tepsilon: {self.epsilon}"
-                )
-
-                #csv_line = f"{mean_score},{mean_score_100},{score},{mean_reward_100},{self.epsilon},{episode_max_loss},{avg_q}\n"
-
-                ## Save stats in csv.
-                #if self.out_csv_path is not None:
-                #    with open(self.out_csv_path, 'a') as f:
-                #        f.write(csv_line)
-
-                # Reset stats.
-                episode_steps = 0
-                episode_max_loss = 0
-                episode_reward = 0
-
-
-
-
 class BaseAgent(ABC):
 
     def __init__(self,
@@ -737,3 +575,240 @@ class AtariAgent(BaseAgent):
         
         # Convert deque to torch.tensor.
         return torch.from_numpy(np.array(self.frames))
+
+
+class CerberusAgent(BaseAgent):
+    def __init__(self,
+            device          = 'cpu',
+            model1          = None,
+            model2          = None,
+            model3          = None,
+            gui             = False,
+            out_model_path  = "./model.pth",
+            checkpoint_path = None
+    ):
+        self.device = device
+
+        # The 3 heads.
+        self.agent1 = AtariAgent(device=self.device, checkpoint_path=model1, epsilon=-1, load_buffer=False, max_dataset_size=0)
+        self.agent2 = AtariAgent(device=self.device, checkpoint_path=model2, epsilon=-1, load_buffer=False, max_dataset_size=0)
+        self.agent3 = AtariAgent(device=self.device, checkpoint_path=model3, epsilon=-1, load_buffer=False, max_dataset_size=0)
+
+
+        # Need to overwrite the checkpoing thing.
+        self.agent1.epsilon = -1
+        self.agent2.epsilon = -1
+        self.agent3.epsilon = -1
+
+        # The game.
+        self.game = SnakeGame(gui=gui)
+
+        # Metadata.
+        self.num_steps = 0
+        self.num_episodes = 0
+        self.record = 0
+        self.record_replay = {'actions': [], 'foods': []}
+
+
+        # Where checkpoint is stored.
+        self.out_model_path = out_model_path
+
+        if checkpoint_path is not None:
+            self._load_checkpoint(checkpoint_path)
+
+
+    # CerberusAgent agent is not proper agent: we don't train it.
+    # So we need to raise error for the non implemented functions.
+    def _init_model(self):
+        raise NotImplementedError
+
+    def _init_memory(self):
+        raise NotImplementedError
+
+    def _update_epsilon(self):
+        raise NotImplementedError
+
+    def get_state(self):
+        raise NotImplementedError
+
+    def _remember(self, state, action, reward, next_state, gameover):
+        raise NotImplementedError
+
+    def _target_sync(self):
+        raise NotImplementedError
+
+    def _train_long_memory(self):
+        raise NotImplementedError
+
+
+    def _save_checkpoint(self):
+        checkpoint = {
+            'episode': self.num_episodes,
+            'steps': self.num_steps,
+            'record': self.record,
+            'record_replay': self.record_replay
+        }
+        torch.save(checkpoint, self.out_model_path)
+
+
+    def _load_checkpoint(self, checkpoint_path):
+        # Load the checkpoint file (to CPU).
+        checkpoint = torch.load(checkpoint_path, weights_only=False, map_location=self.device)
+        
+        # Restore metadata.
+        self.num_episodes = checkpoint['episode']
+        self.num_steps = checkpoint['steps']
+        self.record = checkpoint['record']
+        self.record_replay = checkpoint['record_replay']
+        print(f"INFO: Checkpoint restored.")
+
+
+    def get_action(self, state, model):
+        # The action to take.
+        final_move = [0,0,0]
+
+        # Get the 3 values Q(state, a) for each action a.
+        model.eval()
+        with torch.no_grad():
+            state0 = state.detach().clone()
+            state0 = torch.unsqueeze(state0, 0).to(self.device)
+            prediction = model(state0)
+
+        # Gready choice.
+        greedy_idx = torch.argmax(prediction).item()
+
+        # Non-gready choices.
+        rnd_actions = np.delete(np.array([0, 1, 2]), greedy_idx).tolist()
+        
+        final_move[greedy_idx] = 1
+        
+        if self.game.is_collision(self.game.move(final_move, perform=False)):
+            #print("Greedy is collision => change action")
+            a = max(prediction[0, rnd_actions[0]].item(), prediction[0, rnd_actions[1]].item())
+            b = min(prediction[0, rnd_actions[0]].item(), prediction[0, rnd_actions[1]].item())
+
+            opt_a = [0, 0, 0]
+            opt_b = [0, 0, 0]
+            opt_a[rnd_actions[0]] = 1
+            opt_b[rnd_actions[1]] = 1
+
+            if not self.game.is_collision(self.game.move(opt_a, perform=False)):
+                final_move = opt_a
+                #print("changed with a")
+            elif not self.game.is_collision(self.game.move(opt_b, perform=False)):
+                final_move = opt_b
+                #print("changed with b")
+
+        return final_move
+
+
+    def train(self):
+        total_score = 0
+        score_last_100 = deque(maxlen=100) 
+
+        episode_steps = 0
+        episode_max_loss = 0
+
+        episode_reward = 0
+        reward_last_100 = deque(maxlen=100)
+
+        # Store info to replay the record.
+        actions_replay = []
+        food_replay = [self.game.food]
+
+        # Initial state setup
+        state_old = self.agent1.get_state(self.game)
+
+        score = 0
+
+        while True:
+
+            # Choose action to perform.
+            if score < 25:
+                final_move = self.get_action(state_old, self.agent1.model)
+            elif score < 38:
+                final_move = self.get_action(state_old, self.agent2.model)
+            else:
+                final_move = self.get_action(state_old, self.agent3.model)
+ 
+            # Do the action, save reward, gameover and current score.
+            reward, gameover, score = self.game.play_step(final_move)
+            state_new = self.agent1.get_state(self.game)
+
+            # Update state_old for the next iteration.
+            state_old = state_new
+
+            # Store data for replay.
+            actions_replay.append(final_move)
+            food_replay.append(self.game.food)
+
+            # Update some stats.
+            self.num_steps += 1
+            episode_steps += 1
+            episode_reward += reward
+
+            if gameover:
+                # Reset game.
+                self.game.reset()
+                self.num_episodes += 1
+
+                # Reset stack and take snapshot.
+                self.agent1._on_reset()
+                state_old = self.agent1.get_state(self.game)
+
+                # Save checkpoint if new record reached.
+                if score > self.record:
+                    self.record = score
+                    self.record_replay['actions'] = actions_replay
+                    self.record_replay['foods'] = food_replay
+
+                    # Create checkpoint.
+                    print("INFO: New record! Saving checkpoint...")
+                    self._save_checkpoint()
+
+
+                # Reset replay.
+                actions_replay = []
+                food_replay = []
+        
+                # Update stats.
+                total_score += score
+                mean_score = total_score / self.num_episodes
+                score_last_100.append(score)
+                mean_score_100 = sum(score_last_100) / len(score_last_100)
+
+                reward_last_100.append(episode_reward)
+                mean_reward_100 = sum(reward_last_100) / len(reward_last_100)
+
+                print(
+                    "INFO:\n"
+                    f"\tGAME: {self.num_episodes}\n"
+                    f"\tRecord: {self.record}\n"
+                    f"\tSteps: {self.num_steps}\n"
+                    #f"\tBuffer memory size: {len(self.memory)}\n"
+                    f"\tScore: {score}\n"
+                    f"\tDuration (steps): {episode_steps}\n"
+                    #f"\tMean score: {mean_score}\n"
+                    f"\tMean score last 100: {mean_score_100}\n"
+                    f"\tMean reward last 100: {mean_reward_100}\n"
+                    f"\tTotal score: {total_score}\n"
+                    f"\tAgent1 memory size: {len(self.agent1.memory)}\n"
+                    f"\tAgent2 memory size: {len(self.agent2.memory)}\n"
+                    f"\tAgent3 memory size: {len(self.agent3.memory)}\n"
+                    #f"\tepsilon: {self.epsilon}"
+                )
+
+                #csv_line = f"{mean_score},{mean_score_100},{score},{mean_reward_100},{self.epsilon},{episode_max_loss},{avg_q}\n"
+
+                ## Save stats in csv.
+                #if self.out_csv_path is not None:
+                #    with open(self.out_csv_path, 'a') as f:
+                #        f.write(csv_line)
+
+                # Reset stats.
+                episode_steps = 0
+                episode_max_loss = 0
+                episode_reward = 0
+
+
+
