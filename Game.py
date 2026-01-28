@@ -126,11 +126,15 @@ class SnakeGame:
         if self.head == self.food:
             self.score += 1
             reward = 1
+            if len(self.snake) == 100:
+                print("You won!")
+                game_over = True
+                return reward, game_over, self.score
             self._place_food()
         else:
-            ## Give reward for each step.
-            #if len(self.snake) > 10:
-                #reward += 0.01
+            # Give reward for each step.
+            if len(self.snake) > 10:
+                reward += 0.01
 
             ## Give reward if head is on the border.
             #i = self.head.y // BLOCK_SIZE
@@ -245,7 +249,7 @@ class ReplaySnakeGame(SnakeGame):
                 quit()
 
         # Move.
-        self._move(action) # Update the head.
+        self.move(action) # Update the head.
         self.snake.insert(0, self.head)
 
         # Check if game over.

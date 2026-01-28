@@ -585,7 +585,8 @@ class CerberusAgent(BaseAgent):
             model3          = None,
             gui             = False,
             out_model_path  = "./model.pth",
-            checkpoint_path = None
+            checkpoint_path = None,
+            out_csv_path    = None
     ):
         self.device = device
 
@@ -594,8 +595,7 @@ class CerberusAgent(BaseAgent):
         self.agent2 = AtariAgent(device=self.device, checkpoint_path=model2, epsilon=-1, load_buffer=False, max_dataset_size=0)
         self.agent3 = AtariAgent(device=self.device, checkpoint_path=model3, epsilon=-1, load_buffer=False, max_dataset_size=0)
 
-
-        # Need to overwrite the checkpoing thing.
+        # Need to overwrite the checkpoint thing.
         self.agent1.epsilon = -1
         self.agent2.epsilon = -1
         self.agent3.epsilon = -1
@@ -615,6 +615,15 @@ class CerberusAgent(BaseAgent):
 
         if checkpoint_path is not None:
             self._load_checkpoint(checkpoint_path)
+
+        # Create csv file with stats, if necessary.
+        self.out_csv_path = out_csv_path
+        if self.out_csv_path is not None:
+            csv_header = "score\n"
+            if not os.path.exists(self.out_csv_path):
+                with open(self.out_csv_path, 'w') as f:
+                    f.write(csv_header)
+            print("INFO: Stats will be stored in", self.out_csv_path)
 
 
     # CerberusAgent agent is not proper agent: we don't train it.
@@ -785,25 +794,17 @@ class CerberusAgent(BaseAgent):
                     f"\tGAME: {self.num_episodes}\n"
                     f"\tRecord: {self.record}\n"
                     f"\tSteps: {self.num_steps}\n"
-                    #f"\tBuffer memory size: {len(self.memory)}\n"
                     f"\tScore: {score}\n"
                     f"\tDuration (steps): {episode_steps}\n"
-                    #f"\tMean score: {mean_score}\n"
                     f"\tMean score last 100: {mean_score_100}\n"
                     f"\tMean reward last 100: {mean_reward_100}\n"
                     f"\tTotal score: {total_score}\n"
-                    f"\tAgent1 memory size: {len(self.agent1.memory)}\n"
-                    f"\tAgent2 memory size: {len(self.agent2.memory)}\n"
-                    f"\tAgent3 memory size: {len(self.agent3.memory)}\n"
-                    #f"\tepsilon: {self.epsilon}"
                 )
 
-                #csv_line = f"{mean_score},{mean_score_100},{score},{mean_reward_100},{self.epsilon},{episode_max_loss},{avg_q}\n"
-
-                ## Save stats in csv.
-                #if self.out_csv_path is not None:
-                #    with open(self.out_csv_path, 'a') as f:
-                #        f.write(csv_line)
+                # Save stats in csv.
+                if self.out_csv_path is not None:
+                    with open(self.out_csv_path, 'a') as f:
+                        f.write(f"{score}\n")
 
                 # Reset stats.
                 episode_steps = 0
