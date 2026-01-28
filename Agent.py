@@ -5,7 +5,7 @@ import torch
 from Game import SnakeGame, Direction, Point, BLOCK_SIZE
 from Model import *
 import os
-from Utils import ReplayBuffer
+from ReplayBuffer import ReplayBuffer
 from abc import ABC, abstractmethod
 
 class BaseAgent(ABC):
