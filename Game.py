@@ -16,16 +16,20 @@ class Direction(Enum):
     
 Point = namedtuple('Point', 'x, y')
 
-# rgb colors
-WHITE = (255, 255, 255)
+### RGB COLORS  ####
 RED = (200,0,0)
 BLUE1 = (0, 0, 255)
 BLUE2 = (0, 100, 255)
-BLACK = (0,0,0)
 
+HEAD_COLOR1 = (0, 100, 0)
+HEAD_COLOR2 = (0, 150, 0)
+TAIL_COLOR1 = (100, 0, 0)
+TAIL_COLOR2 = (100, 60, 0)
+BACKGROUND = (44, 178, 169)
+
+### GAME SETTINGS ####
 BLOCK_SIZE = 20
 SPEED = 20
-
 
 # Class that represents the game.
 class SnakeGame:
@@ -45,7 +49,7 @@ class SnakeGame:
         # Init display.
         if self.gui:
             self.display = pygame.display.set_mode((self.w, self.h))
-            pygame.display.set_caption('Info - Snake')
+            pygame.display.set_caption('Score: 0')
 
         # Set clock.
         self.clock = pygame.time.Clock()
@@ -62,11 +66,12 @@ class SnakeGame:
 
         # Place the entire snake.
         self.snake = [
+            # 3 snake.
             self.head, 
             Point(self.head.x - BLOCK_SIZE, self.head.y),
             Point(self.head.x - (2 * BLOCK_SIZE), self.head.y)
         ]
-        
+
         # Init score.
         self.score = 0
 
@@ -108,6 +113,14 @@ class SnakeGame:
                 if event.type == pygame.QUIT:
                     pygame.quit()
                     quit()
+
+        # TO DELETE
+        # 5. Update ui and clock.
+        #if self.gui:
+        #    self._update_ui()
+        #    self.clock.tick(SPEED)
+        #    import time
+        #    time.sleep(60)
         
         # 2. Move.
         self.move(action) # Update the head.
@@ -173,16 +186,21 @@ class SnakeGame:
 
 
     def _update_ui(self):
-        self.display.fill(BLACK)
+        self.display.fill(BACKGROUND)
         
-        for pt in self.snake:
+        # Color head and tail.
+        pygame.draw.rect(self.display, HEAD_COLOR1, pygame.Rect(self.head.x, self.head.y, BLOCK_SIZE, BLOCK_SIZE))
+        pygame.draw.rect(self.display, HEAD_COLOR2, pygame.Rect(self.head.x+4, self.head.y+4, BLOCK_SIZE-8, BLOCK_SIZE-8))
+        pygame.draw.rect(self.display, TAIL_COLOR1, pygame.Rect(self.snake[-1].x, self.snake[-1].y, BLOCK_SIZE, BLOCK_SIZE))
+        pygame.draw.rect(self.display, TAIL_COLOR2, pygame.Rect(self.snake[-1].x+4, self.snake[-1].y+4, BLOCK_SIZE-8, BLOCK_SIZE-8))
+
+        for pt in self.snake[1:-1]:
             pygame.draw.rect(self.display, BLUE1, pygame.Rect(pt.x, pt.y, BLOCK_SIZE, BLOCK_SIZE))
             pygame.draw.rect(self.display, BLUE2, pygame.Rect(pt.x+4, pt.y+4, 12, 12))
             
         pygame.draw.rect(self.display, RED, pygame.Rect(self.food.x, self.food.y, BLOCK_SIZE, BLOCK_SIZE))
         
-        text = font.render("Score: " + str(self.score), True, WHITE)
-        self.display.blit(text, [0, 0])
+        pygame.display.set_caption(f'Score: {str(self.score)}')
         pygame.display.flip()
 
 
@@ -253,6 +271,8 @@ class ReplaySnakeGame(SnakeGame):
         if self.is_collision() or self.step_counter > 100 * len(self.snake):
             game_over = True
             reward = -10
+            import time
+            time.sleep(10)
             return game_over
 
         # Update score if necessary.
