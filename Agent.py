@@ -579,14 +579,15 @@ class AtariAgent(BaseAgent):
 
 class CerberusAgent(BaseAgent):
     def __init__(self,
-            device          = 'cpu',
-            model1          = None,
-            model2          = None,
-            model3          = None,
-            gui             = False,
-            out_model_path  = "./model.pth",
-            checkpoint_path = None,
-            out_csv_path    = None
+            device           = 'cpu',
+            model1           = None,
+            model2           = None,
+            model3           = None,
+            gui              = False,
+            out_model_path   = "./model.pth",
+            checkpoint_path  = None,
+            out_csv_path     = None
+            out_csv_path2    = None
     ):
         self.device = device
 
@@ -624,6 +625,14 @@ class CerberusAgent(BaseAgent):
                 with open(self.out_csv_path, 'w') as f:
                     f.write(csv_header)
             print("INFO: Stats will be stored in", self.out_csv_path)
+
+        # Create csv file with stats, if necessary.
+        self.out_csv_path2 = out_csv_path2
+        if self.out_csv_path2 is not None:
+            csv_header = "score,steps\n"
+            if not os.path.exists(self.out_csv_path2):
+                with open(self.out_csv_path2, 'w') as f:
+                    f.write(csv_header)
 
 
     # CerberusAgent agent is not proper agent: we don't train it.
@@ -739,6 +748,9 @@ class CerberusAgent(BaseAgent):
                 final_move = self.get_action(state_old, self.agent2.model)
             else:
                 final_move = self.get_action(state_old, self.agent3.model)
+
+            # Store old score.
+            old_score = self.game.score
  
             # Do the action, save reward, gameover and current score.
             reward, gameover, score = self.game.play_step(final_move)
@@ -755,6 +767,11 @@ class CerberusAgent(BaseAgent):
             self.num_steps += 1
             episode_steps += 1
             episode_reward += reward
+
+            # Store 
+            if score - old_score and self.out_csv_path2 is not None:
+                with open(self.out_csv_path2, 'a') as f:
+                    f.write(f"{score},{episode_steps}\n")
 
             if gameover:
                 # Reset game.
@@ -810,6 +827,3 @@ class CerberusAgent(BaseAgent):
                 episode_steps = 0
                 episode_max_loss = 0
                 episode_reward = 0
-
-
-
