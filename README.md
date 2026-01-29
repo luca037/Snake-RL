@@ -5,6 +5,16 @@
 
 # Snake-RL
 
+In this project we've trained 3 agents, namely: **BlindAgent**, **LidarAgent**, **AtariAgent**.
+Each of them has its own state-space representation and
+all of them are trained using the DQN algoritm (more info at this [link](https://www.nature.com/articles/nature14236)).
+After identifying the best state-space representation, the **CerberusAgent** was built by ensembling three pre-trained agents
+(3 AtariAgents). You can find more information in the `report.pdf`.
+
+In the following we show the record achieved by each agent.
+
+---
+
 <div align="center">
 
 <table>
@@ -38,3 +48,5 @@
 </table>
   
 </div>
+
+---
