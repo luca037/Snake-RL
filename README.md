@@ -5,6 +5,15 @@
 
 # Snake-RL
 
+## Table of Contents
+
+- [Overview](#overview)
+- [About AtariAgent](#atariagent)
+- [About CerberusAgent](#cerberusagent)
+- [How to run the code](#how-to-run-the-code)
+
+## Overview
+
 In this project we've trained 3 agents, namely: **BlindAgent**, **LidarAgent**, **AtariAgent**.
 Each of them has its own state-space representation and
 all of them are trained using the DQN algoritm (more info at this [link](https://www.nature.com/articles/nature14236)).
@@ -102,3 +111,57 @@ Hell no. The overall strategy *can* win the game but it is far from beeing a per
 In the picture above we can see the score distribution. The bars are colored according to the head that was responsible for the snake’s death.
 Note that: when game starts, the lenght of the snake is 3 and the maximum is 100, so the maximum score is 97 (the score is the number of apples eaten). 
 We observe that the agent reaches the end-game very frequently, although it is less likely to fully win the game.
+
+## How to run the code
+
+First install the requirements:
+
+```shell
+pip install -r requirements.txt
+```
+
+Print help message with `python main.py --help`,  the output:
+
+```
+usage: main.py [-h] [--agent AGENT] [--train] [--loadbuf] [--record] [--nogui]
+
+optional arguments:
+  -h, --help     show this help message and exit
+  --agent AGENT  Specify agent type. Values: atari, blind, lidar or baseline.
+  --train        If you want to train the agent.
+  --loadbuf      If you want to load the buffer to 'device'.
+  --record       If you want to watch the record of the agent.
+  --nogui        If you want to deactivate the gui.
+```
+
+Below I report all the commands you may want to try:
+
+```shell
+# Run baseline algorithm
+python main.py --agent baseline
+
+# See replay of the record
+python main.py --agent cerberus --record
+python main.py --agent blind --record
+python main.py --agent lidar --record
+
+# Train agent
+python main.py --agent cerberus --train
+python main.py --agent blind --train
+python main.py --agent lidar --train
+
+# Create plots with stats (stored in ./output/plots/)
+python plot.py
+```
+
+**Note that**: with `--train` you're not training a model from scratch. 
+It will automatically load a pre-trained model stored in `./output/models/`. 
+
+**Note that**: the training stats are stored in `./output/csv/stats.csv`.
+If you stop training and then restart, the file will not be deleted, new
+information will be added at the bottom. Moreover, the output model will be
+stored to `./output/models/model.pth` and by default a snapshot is created
+only when the agent achives a new record.
+
+When you use `--train` you can also add option `--nogui` to disable the gui (you just get the terminal output
+with the info). Also you can add option `--loadbuf`: this will load a replay buffer stored in `./output/models/`.
