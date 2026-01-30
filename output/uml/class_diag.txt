@@ -1,0 +1,185 @@
+@startuml
+
+skinparam classAttributeIconSize 0
+
+' --- Packages to organize the diagram ---
+
+package "Game Logic" {
+    enum Direction {
+        RIGHT
+        LEFT
+        UP
+        DOWN
+    }
+
+    class Point <<tuple>> {
+        + x : int
+        + y : int
+    }
+
+    class SnakeGame {
+        + w : int
+        + h : int
+        + max_len : int
+        + gui : bool
+        + score : int
+        + step_counter : int
+        + snake : List[Point]
+        + head : Point
+        + food : Point
+        + direction : Direction
+        + display : Surface
+        + clock : Clock
+        # prev_dist : float
+
+        + __init__(w, h, gui)
+        + reset()
+        + play_step(action) : tuple
+        + move(action, perform) : Point
+        + is_collision(pt) : bool
+        # _place_food()
+        # _update_ui()
+        # _dist_food_head()
+    }
+
+    class ReplaySnakeGame {
+        + food_positions : List[Point]
+        + __init__(food_positions, w, h, gui)
+        + play_step(action) : bool
+    }
+}
+
+package "Neural Networks" {
+    class "nn.Module" as nnModule {
+    }
+
+    class Linear_QNet {
+        + linear1 : nn.Linear
+        + linear2 : nn.Linear
+        + linear3 : nn.Linear
+        + __init__(input_size, hidden_size, output_size)
+        + forward(x)
+    }
+
+    class CNN_QNet {
+        + conv : nn.Sequential
+        + linear : nn.Sequential
+        + __init__(in_chan, grid_rows, grid_cols)
+        + forward(x)
+        # _initialize_weights()
+    }
+}
+
+package "Training Infrastructure" {
+    class ReplayBuffer {
+        + mem_size : int
+        + mem_cntr : int
+        + state_memory : Tensor
+        + new_state_memory : Tensor
+        + action_memory : Tensor
+        + reward_memory : Tensor
+        + terminal_memory : Tensor
+        + __init__(state_shape, action_dim, max_size, device)
+        + append(state, action, reward, new_state, gameover)
+        + sample_buffer(batch_size)
+        + store_buffer_h5(out_path)
+        + load_buffer_h5(path)
+        + capacity() : int
+    }
+
+    class QTrainer {
+        + lr : float
+        + gamma : float
+        + model : nn.Module
+        + target_model : nn.Module
+        + optimizer : Optim
+        + criterion : Loss
+        + __init__(model, target_model, lr, gamma)
+        + train_step(state, action, reward, next_state, done)
+    }
+}
+
+package "Agents" {
+    abstract class BaseAgent {
+        # gamma : float
+        # epsilon : float
+        # lr : float
+        # batch_size : int
+        # memory : ReplayBuffer
+        # model : nn.Module
+        # trainer : QTrainer
+        # game : SnakeGame
+        + __init__(...)
+        {abstract} + get_state(game)
+        {abstract} # _init_memory()
+        {abstract} # _init_model()
+        + train()
+        + get_action(state)
+        # _remember(...)
+        # _train_long_memory()
+    }
+
+    class BlindAgent {
+        + get_state(game)
+    }
+
+    class LidarAgent {
+        + get_state(game)
+    }
+
+    class AtariAgent {
+        # frames : deque
+        + get_state(game)
+        # _get_single_frame(game)
+    }
+
+    class CerberusAgent {
+        + agent1 : AtariAgent
+        + agent2 : AtariAgent
+        + agent3 : AtariAgent
+        + get_action(state, model)
+        + train()
+    }
+
+    class Baseline {
+        + steps : int
+        + rows : int
+        + cols : int
+        + out_csv_path : str
+        + game : SnakeGame
+        + __init__(gui, out_csv_path)
+        + play_action(action)
+        + visit_all_cols()
+        + play()
+    }
+}
+
+' --- Relationships ---
+
+' Inheritance
+SnakeGame <|-- ReplaySnakeGame
+nnModule <|-- Linear_QNet
+nnModule <|-- CNN_QNet
+BaseAgent <|-- BlindAgent
+BaseAgent <|-- LidarAgent
+BaseAgent <|-- AtariAgent
+BaseAgent <|-- CerberusAgent
+
+' Associations & Composition
+SnakeGame --> Direction
+SnakeGame --> Point
+
+BaseAgent o-- SnakeGame
+BaseAgent o-- ReplayBuffer
+BaseAgent o-- QTrainer
+Baseline o-- SnakeGame
+
+QTrainer --> nnModule : trains >
+CerberusAgent *-- "3" AtariAgent : manages >
+
+' Dependency specific links
+BlindAgent ..> Linear_QNet : uses
+LidarAgent ..> Linear_QNet : uses
+AtariAgent ..> CNN_QNet : uses
+
+@enduml
