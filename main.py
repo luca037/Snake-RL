@@ -20,7 +20,7 @@ TARGET_SYNC = 5_000
 
 ########################### Output files ######################################
 
-OUT_MODEL_FILE_PATH = "./output/models/model_LidarAgent.pth"
+OUT_MODEL_FILE_PATH = "./output/models/model.pth"
 OUT_CSV_PATH = "./output/csv/stats.csv"
 
 ######################### Pre-trained models ##################################
