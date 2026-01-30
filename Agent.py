@@ -21,6 +21,7 @@ class BaseAgent(ABC):
             gamma            = 0.9,
             target_sync      = 100,
             out_model_path   = './model.pth',
+            memory_path      = './memory.pth',
             out_csv_path     = None,
             device           = 'cpu',
             gui              = False,
@@ -41,6 +42,7 @@ class BaseAgent(ABC):
 
         # Paths.
         self.out_model_path = out_model_path
+        self.memory_path = memory_path
         self.out_csv_path = out_csv_path
 
         # Game and stats.
@@ -93,8 +95,7 @@ class BaseAgent(ABC):
     ### Common methods ###
     def _save_checkpoint(self):
         # Store the memory to disk.
-        memory_path = "./output/models/memory.h5" # TODO: don't hardcode.
-        self.memory.store_buffer_h5(out_path=memory_path)
+        self.memory.store_buffer_h5(out_path=self.memory_path)
 
         checkpoint = {
             'episode': self.num_episodes,
@@ -103,7 +104,6 @@ class BaseAgent(ABC):
             'epsilon': self.epsilon,
             'model_state_dict': self.model.state_dict(),
             'optimizer_state_dict': self.trainer.optimizer.state_dict(),
-            'memory_path': memory_path,
             'record_replay': self.record_replay
         }
         torch.save(checkpoint, self.out_model_path)
@@ -126,8 +126,7 @@ class BaseAgent(ABC):
         self.record_replay = checkpoint['record_replay']
 
         if load_buffer:
-            memory_path = checkpoint['memory_path']
-            self.memory.load_buffer_h5(path=memory_path)
+            self.memory.load_buffer_h5(path=self.memory_path)
 
         print(f"INFO: Checkpoint restored.")
 
@@ -580,21 +579,21 @@ class AtariAgent(BaseAgent):
 class CerberusAgent(BaseAgent):
     def __init__(self,
             device           = 'cpu',
-            model1           = None,
-            model2           = None,
-            model3           = None,
+            head1            = None,
+            head2            = None,
+            head3            = None,
             gui              = False,
             out_model_path   = "./model.pth",
             checkpoint_path  = None,
-            out_csv_path     = None
+            out_csv_path     = None,
             out_csv_path2    = None
     ):
         self.device = device
 
         # The 3 heads.
-        self.agent1 = AtariAgent(device=self.device, checkpoint_path=model1, epsilon=-1, load_buffer=False, max_dataset_size=0)
-        self.agent2 = AtariAgent(device=self.device, checkpoint_path=model2, epsilon=-1, load_buffer=False, max_dataset_size=0)
-        self.agent3 = AtariAgent(device=self.device, checkpoint_path=model3, epsilon=-1, load_buffer=False, max_dataset_size=0)
+        self.agent1 = AtariAgent(device=self.device, checkpoint_path=head1, epsilon=-1, load_buffer=False, max_dataset_size=0)
+        self.agent2 = AtariAgent(device=self.device, checkpoint_path=head2, epsilon=-1, load_buffer=False, max_dataset_size=0)
+        self.agent3 = AtariAgent(device=self.device, checkpoint_path=head3, epsilon=-1, load_buffer=False, max_dataset_size=0)
 
         # Need to overwrite the checkpoint thing.
         self.agent1.epsilon = -1

@@ -4,6 +4,7 @@ from enum import Enum
 from collections import namedtuple
 import numpy as np
 import math
+import time
 
 pygame.init()
 font = pygame.font.SysFont('arial', 25)
@@ -39,6 +40,8 @@ class SnakeGame:
         # Window width and height.
         self.w = w 
         self.h = h
+
+        self.max_len = (w // BLOCK_SIZE) * (h // BLOCK_SIZE)
 
         # Min distance from food to get reward +1.
         self.prev_dist = 0
@@ -139,7 +142,7 @@ class SnakeGame:
         if self.head == self.food:
             self.score += 1
             reward = 1
-            if len(self.snake) == 100:
+            if len(self.snake) == self.max_len:
                 print("You won!")
                 game_over = True
                 return reward, game_over, self.score
@@ -202,7 +205,8 @@ class SnakeGame:
             pygame.draw.rect(self.display, BLUE1, pygame.Rect(pt.x, pt.y, BLOCK_SIZE, BLOCK_SIZE))
             pygame.draw.rect(self.display, BLUE2, pygame.Rect(pt.x+4, pt.y+4, 12, 12))
             
-        pygame.draw.rect(self.display, RED, pygame.Rect(self.food.x, self.food.y, BLOCK_SIZE, BLOCK_SIZE))
+        if len(self.snake) < self.max_len:
+            pygame.draw.rect(self.display, RED, pygame.Rect(self.food.x, self.food.y, BLOCK_SIZE, BLOCK_SIZE))
         
         pygame.display.set_caption(f'Score: {str(self.score)}')
         pygame.display.flip()
@@ -275,8 +279,7 @@ class ReplaySnakeGame(SnakeGame):
         if self.is_collision() or self.step_counter > 100 * len(self.snake):
             game_over = True
             reward = -10
-            import time
-            time.sleep(10)
+            time.sleep(5)
             return game_over
 
         # Update score if necessary.
@@ -292,6 +295,9 @@ class ReplaySnakeGame(SnakeGame):
         if self.gui:
             self._update_ui()
             self.clock.tick(SPEED)
+
+        if len(self.snake) == self.max_len:
+            time.sleep(3)
 
         # Return game over and score.
         return game_over

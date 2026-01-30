@@ -1,10 +1,57 @@
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
 import pandas as pd
 import numpy as np
 
-INPUT_CSV = "./output/csv/stats_cerberus.csv"
-
+### Global settings and vars ###
 plt.style.use('seaborn-v0_8-bright')
+INPUT_CSV = "./output/csv/stats.csv"
+
+CERBERUS_EFF = "./output/csv/cerberus_efficiency.csv"
+BASELINE_EFF = "./output/csv/baseline.csv"
+
+
+def efficency_plot(outfile):
+    try:
+        df_c = pd.read_csv(CERBERUS_EFF)
+        df_b = pd.read_csv(BASELINE_EFF)
+    except FileNotFoundError:
+        print("ERROR: File not found.")
+        return
+    
+    cerberus_y = []
+    baseline_y = []
+    
+    for i in range(1, 98):
+        score_c = (df_c['score'] == i)
+        
+        if not score_c.sum():
+            cerberus_y.append(0)
+        else:
+            steps_c = df_c[score_c]['steps']
+            avg_steps_c = steps_c.sum() / score_c.sum()
+            cerberus_y.append(avg_steps_c)
+    
+        score_b = (df_b['score'] == i)
+        
+        if not score_b.sum():
+            baseline_y.append(0)
+        else:
+            steps_b = df_b[score_b]['steps']
+            avg_steps_b = steps_b.sum() / score_b.sum()
+            baseline_y.append(avg_steps_b)
+    
+    plt.tight_layout()
+    plt.xlabel("Score", fontsize=12)
+    plt.ylabel("Average number of steps", fontsize=12)
+    plt.xticks(np.arange(0, 100, 10))
+    plt.xlim(-1, 98)
+    plt.grid(alpha=0.4)
+    plt.plot(range(1, 98), cerberus_y, color='green', label='CerberusAgent')
+    plt.plot(range(1, 98), baseline_y, color='purple', label='Baseline')
+    plt.legend(fontsize=12)
+    plt.savefig(outfile)
+    plt.close()
 
 
 def score_histogram_plot(outfile):
@@ -34,7 +81,6 @@ def score_histogram_plot(outfile):
     plt.ylabel('Probability', fontsize=12)
     
     # Add a custom legend to explain the colors.
-    from matplotlib.patches import Patch
     legend_elements = [
         Patch(facecolor='#ff9999', edgecolor='black', alpha=1, label='Head 1'),
         Patch(facecolor='#ffcc99', edgecolor='black', alpha=1, label='Head 2'),
@@ -118,7 +164,6 @@ def monitor_training_plot(outfile):
 
     # Clean up layout and display.
     plt.tight_layout()
-    #display.display(plt.gcf())
     plt.savefig(outfile)
     plt.close(fig)
     
@@ -126,4 +171,5 @@ def monitor_training_plot(outfile):
 if __name__ == '__main__':
     monitor_training_plot("./output/plots/monitor_training_plot.pdf")
     score_histogram_plot("./output/plots/score_histogram_plot.pdf")
+    efficency_plot("./output/plots/efficiency_plot.pdf")
 
