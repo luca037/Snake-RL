@@ -98,7 +98,7 @@ At each step of the game, a single head gives the next action to perform. The he
 The simple logic is reported in the following picture:
 
 <div align="center">
-<img width="500" height="260" alt="image" src="https://github.com/user-attachments/assets/9093ed5a-41b7-473b-a895-506f61aa16ac" />
+<img width="500" height="260" alt="image" src="https://github.com/user-attachments/assets/b3859a48-3c33-4bb5-9caa-1693fd2c21e8" />
 </div>
 
 ### Does it always win the game?
