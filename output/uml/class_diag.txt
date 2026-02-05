@@ -116,7 +116,7 @@ package "Agents" {
         + train()
         + get_action(state)
         # _remember(...)
-        # _train_long_memory()
+        # _train_batch()
     }
 
     class BlindAgent {

@@ -53,7 +53,7 @@ class Baseline:
                     if self.play_action(action): break
                     if self.play_action(action): break
                     i -= 1 # Caused by second turn left action.
-                    j += 1 # Go to nxt col.
+                    j += 1 # Go to next col.
                 else:
                     action = [1, 0, 0] # Go straight.
                     if self.play_action(action): break

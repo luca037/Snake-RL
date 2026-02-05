@@ -43,7 +43,6 @@ class CNN_QNet(nn.Module):
 
     def forward(self, x):
         x = self.conv(x)
-        #x = self.adaptive_pool(x)
         x = x.view(x.size(0), -1)
         x = self.linear(x)
         return x
@@ -66,12 +65,6 @@ class QTrainer:
 
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
         self.criterion = nn.MSELoss()
-        #self.criterion = nn.SmoothL1Loss()
-
-        # Add a scheduler
-        #self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        #    self.optimizer, mode='max', factor=0.5, patience=50
-        #)
 
     def train_step(self, state, action, reward, next_state, done):
         # Q-Value forward pass.
@@ -85,7 +78,7 @@ class QTrainer:
             max_next_q = torch.max(next_pred, dim=1).values # shape: N
             
         # Compute target value (scalar).
-        # Q_target = reward + gamma * max(Q(s', a'))
+        # Q_target := reward + gamma * max(Q(s', a'))
         Q_new = reward + self.gamma * max_next_q # shape: N
         
         # Q_target is just the reward if the episode is done (terminal state).
@@ -109,10 +102,6 @@ class QTrainer:
         # Compute loss; backpropagate.
         loss = self.criterion(target, pred)
         loss.backward()
-        
-        # Clip gradients to prevent exploding gradients (common in RL)
-        #torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0) 
-
         self.optimizer.step()
 
         return loss.detach().item()

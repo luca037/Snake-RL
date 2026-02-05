@@ -117,14 +117,6 @@ class SnakeGame:
                     pygame.quit()
                     quit()
 
-        # TO DELETE
-        # 5. Update ui and clock.
-        #if self.gui:
-        #    self._update_ui()
-        #    self.clock.tick(SPEED)
-        #    import time
-        #    time.sleep(60)
-        
         # 2. Move.
         self.move(action) # Update the head.
         self.snake.insert(0, self.head)
@@ -160,6 +152,7 @@ class SnakeGame:
 
             self.snake.pop()
     
+        # Give reward based on distance to food.
         #self.prev_dist = self.dist
         #self._dist_food_head()
         #if self.head != self.food:

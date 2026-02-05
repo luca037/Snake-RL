@@ -139,7 +139,7 @@ class BaseAgent(ABC):
         self.target_model.load_state_dict(self.model.state_dict())
 
 
-    def _train_long_memory(self):
+    def _train_batch(self):
         # Create batch.
         states, actions, rewards, next_states, gameovers = self.memory.sample_buffer(self.batch_size)
         # Train and return loss.
@@ -214,7 +214,7 @@ class BaseAgent(ABC):
 
             # Train on batch.
             if len(self.memory) > self.batch_size:
-                loss = self._train_long_memory()
+                loss = self._train_batch()
                 episode_max_loss = max(episode_max_loss, loss)
 
             # Update state_old for the next iteration.
@@ -654,7 +654,7 @@ class CerberusAgent(BaseAgent):
     def _target_sync(self):
         raise NotImplementedError
 
-    def _train_long_memory(self):
+    def _train_batch(self):
         raise NotImplementedError
 
 
@@ -699,8 +699,8 @@ class CerberusAgent(BaseAgent):
         
         final_move[greedy_idx] = 1
         
+        # Mask actions that leads to death.
         if self.game.is_collision(self.game.move(final_move, perform=False)):
-            #print("Greedy is collision => change action")
             a = max(prediction[0, rnd_actions[0]].item(), prediction[0, rnd_actions[1]].item())
             b = min(prediction[0, rnd_actions[0]].item(), prediction[0, rnd_actions[1]].item())
 
@@ -711,10 +711,8 @@ class CerberusAgent(BaseAgent):
 
             if not self.game.is_collision(self.game.move(opt_a, perform=False)):
                 final_move = opt_a
-                #print("changed with a")
             elif not self.game.is_collision(self.game.move(opt_b, perform=False)):
                 final_move = opt_b
-                #print("changed with b")
 
         return final_move
 
