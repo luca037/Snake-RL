@@ -244,4 +244,4 @@ Here a list some useful resources:
 - The starting point for Snake and Reinforcement learning -> [link](https://towardsdatascience.com/snake-played-by-a-deep-reinforcement-learning-agent-53f2c4331d36-2/)
 - BlindAgent was inspired by this project -> [link](https://github.com/patrickloeber/snake-ai-pytorch)
 - LidarAgent was inspired by this project. This use a Genetic Algorithm however -> [link](https://github.com/greerviau/SnakeAI)
-- Another Genetic Algorithm approach -> [link](#https://github.com/Chrispresso/SnakeAI)
+- Another Genetic Algorithm approach -> [link](https://github.com/Chrispresso/SnakeAI)
