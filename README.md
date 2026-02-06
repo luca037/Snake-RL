@@ -169,6 +169,17 @@ only when the agent achives a new record.
 When you use `--train` you can also add option `--nogui` to disable the gui (you just get the terminal output
 with the info). Also you can add option `--loadbuf`: this will load a replay buffer stored in `./output/models/`.
 
+---
+
+You can also plot the stats of the pre-trained models.
+For example, to plot the stats of the BlindAgent:
+
+```bash
+# Copy stats
+cp ./output/csv/stats_BlindAgent.csv ./output/csv/stats.csv"
+python plot.py
+```
+
 ## Class Diagram
 
 <div align="center">
@@ -198,7 +209,7 @@ else:
     device = torch.device("cpu")
     print("INFO: CUDA and MPS not available. Running on CPU.")
 
-agent = AtariAgent( # or LidarAgent or BlindAgent
+agent = BlindAgent( # or LidarAgent or AtariAgent
     max_dataset_size = 100_000,
     batch_size       = 32,
     lr               = 0.00025,
@@ -215,6 +226,7 @@ agent = AtariAgent( # or LidarAgent or BlindAgent
     checkpoint_path  = None,
     load_buffer      = False
 )
+agent.train()
 ```
 
 Training a `BlindAgent` is very fast (~200 games is enough), the other two need more time.
