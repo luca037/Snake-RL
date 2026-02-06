@@ -88,9 +88,3 @@ class ReplayBuffer:
             self.terminal_memory[0:size] = torch.from_numpy(gameovers)
 
             self.mem_cntr = size
-            
-            #experiences = zip(states, actions, rewards, next_states, gameovers)
-            
-            # Extend memory.
-            #self.memory.extend(experiences)
-            #print(f"INFO: Loaded {len(self.memory)} samples into memory buffer.")
