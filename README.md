@@ -17,7 +17,8 @@
 - [Repository Structure](#repository-structure)
 - [References](#references)
 - [Update June 2026: AtariAgent reaches maximum score](#update-june-2026-atariagent-reaches-maximum-score)
-- [Training AtariAgent with Gymnasium + Stable-Baselines3](#training-atariagent-with-gymnasium--stable-baselines3)
+- [Update June 2026: Training AtariAgent with Gymnasium + Stable-Baselines3](#update-june-2026-training-atariagent-with-gymnasium--stable-baselines3)
+- [Update July 2026: AtariAgent++ and PPO is all you need](#update-july-2026-atariagent-and-ppo-is-all-you-need)
 
 ## Overview
 
@@ -264,6 +265,10 @@ Here a list some useful resources:
 - LidarAgent was inspired by this project. This use a Genetic Algorithm however -> [link](https://github.com/greerviau/SnakeAI)
 - Another Genetic Algorithm approach -> [link](https://github.com/Chrispresso/SnakeAI)
 
+---
+
+# Extra stuff
+
 ## Update June 2026: AtariAgent reaches maximum score
 
 AtariAgent is enough to win at snake. I've tried different solution and I've tested many different parameters and it turns out that AtariAgent can reach the maximum score.
@@ -287,7 +292,7 @@ Note that using too many environments leads to the opposite problem: the replay 
 
 After the introduction of vectorized environments I've tried to improve the performances by implementing soft target updates and prioritized replay buffer (PER) using a sum tree, but I didn't get any significant improvements.
 
-## Training AtariAgent with Gymnasium + Stable-Baselines3
+## Update June 2026: Training AtariAgent with Gymnasium + Stable-Baselines3
 
 I've made a test using the DQN implementation of SB3. The results are much better w.r.t. my implementation: higher average score and winning rate.
 
@@ -297,3 +302,12 @@ I've made a test using the DQN implementation of SB3. The results are much bette
 
 The main problem of the two learned policies (using SB3 and the one learned using my implementation) is that they struggle to avoid traps. 
 I think this is mainly related to the reward function since the agent plays very aggressively. In the following tests I'll try to investigate that.
+
+## Update July 2026: AtariAgent++ and PPO is all you need
+
+AtariAgent++ is a modified version of AtariAgent: different neural network architecture; slightly different state space and different training algorithm (PPO from SB3 implementation).
+Moreover, I've made some changes to the reward function.
+
+<div align="center">
+<img width="640" height="480" alt="score_histogram_plot" src="https://github.com/user-attachments/assets/53749ceb-61c9-4d02-9771-81a0e52849f0" />
+</div>
