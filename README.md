@@ -311,3 +311,17 @@ Moreover, I've made some changes to the reward function.
 <div align="center">
 <img width="640" height="480" alt="score_histogram_plot" src="https://github.com/user-attachments/assets/53749ceb-61c9-4d02-9771-81a0e52849f0" />
 </div>
+
+Below is a short demonstration of the learned policy in action.
+Interestingly, toward the end of the game, the learned policy closely resembles the Hamiltonian cycle.
+Unlike the Hamiltonian baseline, however, it takes shortcuts during the early stages of the game, allowing the snake to reach the food in fewer steps and grow more quickly!
+
+<table align="center">
+  <tr>
+    <th align="center">CerberusAgent</th>
+  </tr>
+  <tr>
+    <td align="center">
+      <img width="240" height="274" alt="output" src="https://github.com/user-attachments/assets/04308b23-51b7-4572-ab23-60b287a734c4" />    </td>
+  </tr>
+</table>
