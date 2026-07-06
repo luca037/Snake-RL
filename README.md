@@ -318,7 +318,7 @@ Unlike the Hamiltonian baseline, however, it takes shortcuts during the early st
 
 <table align="center">
   <tr>
-    <th align="center">CerberusAgent</th>
+    <th align="center">AtariAgent++ </th>
   </tr>
   <tr>
     <td align="center">
