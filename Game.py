@@ -137,8 +137,8 @@ class SnakeGame:
             if len(self.snake) == self.max_len:
                 print("You won!")
                 game_over = True
-                return reward, game_over, self.score
-            self._place_food()
+            else:
+                self._place_food()
         else:
             # Give reward for each step.
             if len(self.snake) > 10:
