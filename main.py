@@ -51,7 +51,7 @@ def main():
     parser.add_argument("--train", action="store_true", help="If you want to train the agent.")
     parser.add_argument("--loadbuf", action="store_true", help="If you want to load the buffer to 'device'.")
     parser.add_argument("--record", action="store_true", help="If you want to watch the record of the agent.")
-    parser.add_argument("--nogui", action="store_false", help="If you want to deactivate the gui.")
+    parser.add_argument("--nogui", action="store_false", default=True, help="If you want to deactivate the gui.")
 
     # Parse args.
     args = parser.parse_args()
@@ -127,7 +127,7 @@ def main():
     elif args.agent == "baseline":
         print("INFO: Baseline algorithm will play...")
         baseline = Baseline(
-            gui=args.gui,
+            gui=args.nogui,
             out_csv_path="./output/csv/baseline.csv"
         )
         baseline.play()
