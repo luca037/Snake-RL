@@ -30,8 +30,6 @@ After identifying the best state-space representation, the **CerberusAgent** was
 
 In the following we show the record achieved by each agent.
 
-**Update June 2026 - AtariAgent reaches maximum score** (read more at the end of this readme).
-
 ---
 
 <div align="center">
